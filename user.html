@@ -88,7 +88,7 @@
     }
     
     .hidden {
-      display: none;
+      display: none !important;
     }
     
     .form-group {
@@ -377,7 +377,7 @@
           <input type="text" id="state" required placeholder="Enter your state">
         </div>
         
-        <button type="submit">
+        <button type="submit" id="save-profile-btn">
           <i class="fas fa-save"></i> Save Profile
         </button>
       </form>
@@ -461,7 +461,7 @@
           <textarea id="feedback" rows="5" required placeholder="Please share your experience with the service provider"></textarea>
         </div>
         
-        <button type="submit" class="success">
+        <button type="submit" class="success" id="submit-feedback-btn">
           <i class="fas fa-paper-plane"></i> Submit Feedback
         </button>
       </form>
@@ -513,7 +513,1283 @@
   <div id="notification-container"></div>
 
   <!-- JavaScript Files -->
-  <script type="module" src="/assets/js/firebase-config.js"></script>
-  <script type="module" src="/assets/js/userDashboard.js"></script>
+  <script type="module">
+    // Import Firebase modules
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
+    import { 
+      getAuth, 
+      onAuthStateChanged 
+    } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-auth.js";
+    import { 
+      getFirestore,
+      doc, 
+      setDoc, 
+      getDoc, 
+      collection, 
+      addDoc, 
+      query, 
+      where, 
+      getDocs, 
+      updateDoc, 
+      deleteField, 
+      orderBy,
+      GeoPoint, 
+      serverTimestamp, 
+      increment 
+    } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js";
+
+    // Firebase Configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyC0dYCbPoH5mH1QeLI31xrfqnUSbT8Bao0",
+      authDomain: "fixeasy-568cd.firebaseapp.com",
+      projectId: "fixeasy-568cd",
+      storageBucket: "fixeasy-568cd.firebasestorage.app",
+      messagingSenderId: "839456909521",
+      appId: "1:839456909521:web:8555cb99e40cb5e1753df0",
+      measurementId: "G-RQD3RPMZKS"
+    };
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    // Global Variables
+    let userId = null;
+    let latestServiceId = null;
+    let subscriptionPlan = "Free";
+    let remainingRequests = 1;
+    let subscriptionStatus = "Active";
+    let userData = {};
+    let selectedRating = 0;
+
+    // API Configuration
+    const API_CONFIG = {
+      FREE_PLAN_REQUESTS: 1,
+      GOLD_PLAN_REQUESTS: 35,
+      GOLD_PLAN_PRICE: 199,
+      GOLD_PLAN_CURRENCY: "₹"
+    };
+
+    // ✅ Initialize Application
+    document.addEventListener('DOMContentLoaded', async () => {
+      console.log("DOM Loaded - Initializing app...");
+      try {
+        await initializeAuth();
+        setupEventListeners();
+      } catch (error) {
+        console.error("Initialization error:", error);
+        showNotification("Failed to initialize application. Please refresh.", "error");
+      }
+    });
+
+    // ✅ Setup Authentication
+    async function initializeAuth() {
+      console.log("Setting up authentication...");
+      
+      onAuthStateChanged(auth, async (user) => {
+        console.log("Auth state changed:", user ? "User logged in" : "No user");
+        
+        if (!user) {
+          showNotification("You need to sign in first. Redirecting...", "error");
+          setTimeout(() => window.location.href = "signin.html", 2000);
+          return;
+        }
+
+        userId = user.uid;
+        console.log("User ID:", userId);
+        document.getElementById('userAvatar').textContent = user.email ? user.email[0].toUpperCase() : 'U';
+        
+        try {
+          await loadUserProfile();
+          await checkSubscription();
+          await loadUserServices();
+          setupRatingStars();
+        } catch (error) {
+          console.error("Error in initialization:", error);
+          showNotification("Error loading dashboard data", "error");
+        }
+      });
+    }
+
+    // ✅ Setup Event Listeners
+    function setupEventListeners() {
+      console.log("Setting up event listeners...");
+      
+      // Profile Form
+      const profileForm = document.getElementById("profile-form");
+      if (profileForm) {
+        profileForm.addEventListener("submit", handleProfileSubmit);
+      } else {
+        console.error("Profile form not found!");
+      }
+      
+      // Service Request Form
+      const serviceForm = document.getElementById("request-service-form");
+      if (serviceForm) {
+        serviceForm.addEventListener("submit", handleServiceRequest);
+      }
+      
+      // Feedback Form
+      const feedbackForm = document.getElementById("feedback-form");
+      if (feedbackForm) {
+        feedbackForm.addEventListener("submit", handleFeedbackSubmit);
+      }
+      
+      // Upgrade Button
+      const upgradeBtn = document.getElementById("upgrade-btn");
+      if (upgradeBtn) {
+        upgradeBtn.addEventListener("click", requestGoldPlan);
+      }
+      
+      // Service Select for Feedback
+      const serviceSelect = document.getElementById("service-select");
+      if (serviceSelect) {
+        serviceSelect.addEventListener("change", function() {
+          latestServiceId = this.value;
+          console.log("Selected service for feedback:", latestServiceId);
+        });
+      }
+      
+      console.log("Event listeners setup complete");
+    }
+
+    // ✅ Show Notification
+    function showNotification(message, type = "info") {
+      const container = document.getElementById('notification-container');
+      const notification = document.createElement('div');
+      notification.className = `notification ${type}`;
+      notification.innerHTML = `
+        <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i>
+        ${message}
+      `;
+      
+      container.appendChild(notification);
+      
+      // Auto remove after 5 seconds
+      setTimeout(() => {
+        notification.style.animation = 'slideIn 0.3s ease reverse';
+        setTimeout(() => notification.remove(), 300);
+      }, 5000);
+    }
+
+    // ✅ Load User Profile (FIXED)
+    async function loadUserProfile() {
+      console.log("Loading user profile...");
+      
+      try {
+        const userDoc = await getDoc(doc(db, "users", userId));
+        
+        if (userDoc.exists()) {
+          userData = userDoc.data();
+          console.log("User data loaded:", userData);
+          
+          // Populate form fields
+          document.getElementById("username").value = userData.username || "";
+          document.getElementById("phone").value = userData.phone || "";
+          document.getElementById("address").value = userData.address || "";
+          document.getElementById("city").value = userData.city || "";
+          document.getElementById("state").value = userData.state || "";
+          
+          // Update greeting
+          const greeting = document.getElementById("userGreeting");
+          if (greeting) {
+            greeting.textContent = `Hello, ${userData.username || "User"}!`;
+          }
+          
+          const avatar = document.getElementById('userAvatar');
+          if (avatar) {
+            avatar.textContent = userData.username ? userData.username[0].toUpperCase() : 'U';
+          }
+          
+          // Check if profile is complete
+          const isProfileComplete = userData.phone && userData.address && userData.city && userData.state;
+          console.log("Profile complete:", isProfileComplete);
+          
+          // Toggle sections
+          const section1 = document.getElementById("section-1");
+          const section2 = document.getElementById("section-2");
+          const section3 = document.getElementById("section-3");
+          const section5 = document.getElementById("section-5");
+          
+          if (section1) section1.classList.toggle("hidden", isProfileComplete);
+          if (section2) section2.classList.toggle("hidden", !isProfileComplete);
+          if (section3) section3.classList.toggle("hidden", !isProfileComplete);
+          if (section5) section5.classList.toggle("hidden", !isProfileComplete);
+          
+        } else {
+          console.log("Creating new user document...");
+          // Create initial user document
+          await setDoc(doc(db, "users", userId), {
+            uid: userId,
+            email: auth.currentUser?.email || "",
+            username: "",
+            phone: "",
+            address: "",
+            city: "",
+            state: "",
+            role: "user",
+            createdAt: serverTimestamp(),
+            lastLogin: serverTimestamp()
+          });
+          
+          showNotification("Welcome! Please complete your profile.", "info");
+          
+          // Ensure profile section is visible
+          const section1 = document.getElementById("section-1");
+          if (section1) section1.classList.remove("hidden");
+        }
+        
+      } catch (error) {
+        console.error("Error loading profile:", error);
+        showNotification("Error loading profile data", "error");
+      }
+    }
+
+    // ✅ Handle Profile Submit (FIXED)
+    async function handleProfileSubmit(e) {
+      console.log("Profile form submitted");
+      e.preventDefault();
+      e.stopPropagation();
+      
+      const submitBtn = document.getElementById("save-profile-btn");
+      const originalText = submitBtn.innerHTML;
+      submitBtn.innerHTML = '<div class="loading"></div> Saving...';
+      submitBtn.disabled = true;
+      
+      try {
+        const profileData = {
+          username: document.getElementById("username").value.trim(),
+          phone: document.getElementById("phone").value.trim(),
+          address: document.getElementById("address").value.trim(),
+          city: document.getElementById("city").value.trim(),
+          state: document.getElementById("state").value.trim(),
+          updatedAt: serverTimestamp(),
+          profileCompleted: true
+        };
+        
+        console.log("Profile data to save:", profileData);
+        
+        // Validate phone number
+        const phoneRegex = /^[0-9]{10}$/;
+        if (!phoneRegex.test(profileData.phone)) {
+          throw new Error("Please enter a valid 10-digit phone number");
+        }
+        
+        // Validate required fields
+        if (!profileData.username || !profileData.address || !profileData.city || !profileData.state) {
+          throw new Error("Please fill in all required fields");
+        }
+        
+        // Save to Firestore
+        await setDoc(doc(db, "users", userId), profileData, { merge: true });
+        
+        console.log("Profile saved successfully");
+        showNotification("Profile saved successfully!", "success");
+        
+        // Update local userData
+        userData = { ...userData, ...profileData };
+        
+        // Hide profile section and show other sections
+        setTimeout(() => {
+          document.getElementById("section-1").classList.add("hidden");
+          document.getElementById("section-2").classList.remove("hidden");
+          document.getElementById("section-3").classList.remove("hidden");
+          document.getElementById("section-5").classList.remove("hidden");
+          
+          // Update greeting
+          document.getElementById("userGreeting").textContent = `Hello, ${profileData.username}!`;
+          document.getElementById('userAvatar').textContent = profileData.username[0].toUpperCase();
+          
+          // Reset button
+          submitBtn.innerHTML = originalText;
+          submitBtn.disabled = false;
+        }, 1000);
+        
+      } catch (error) {
+        console.error("Profile save error:", error);
+        showNotification(error.message || "Failed to save profile", "error");
+        submitBtn.innerHTML = originalText;
+        submitBtn.disabled = false;
+      }
+    }
+
+    // ✅ Check Subscription
+    async function checkSubscription() {
+      try {
+        const subRef = doc(db, "subscriptions", userId);
+        const subSnap = await getDoc(subRef);
+        const today = new Date();
+        
+        if (subSnap.exists()) {
+          const data = subSnap.data();
+          
+          subscriptionPlan = data.plan || "Free";
+          remainingRequests = data.remainingRequests || API_CONFIG.FREE_PLAN_REQUESTS;
+          subscriptionStatus = data.status || "Active";
+          const subscribedDate = data.subscribedDate ? new Date(data.subscribedDate) : null;
+          const lastReset = data.lastReset ? new Date(data.lastReset) : null;
+          
+          // Handle rejected subscription
+          if (subscriptionPlan === "Gold" && subscriptionStatus === "Rejected") {
+            const backupRequests = data.backupRequests || API_CONFIG.FREE_PLAN_REQUESTS;
+            
+            await setDoc(subRef, {
+              plan: "Free",
+              status: "Active",
+              remainingRequests: backupRequests,
+              lastReset: today.toISOString(),
+              rejectionDate: today.toISOString(),
+              subscribedDate: deleteField(),
+              backupRequests: deleteField()
+            }, { merge: true });
+            
+            showNotification(`Gold Plan was rejected. Restored your ${backupRequests} request(s).`, "info");
+            
+            subscriptionPlan = "Free";
+            remainingRequests = backupRequests;
+            subscriptionStatus = "Active";
+            
+            updateSubscriptionUI();
+            return;
+          }
+          
+          // Handle expired Gold plan
+          if (subscriptionPlan === "Gold" && subscribedDate) {
+            const expiryDate = new Date(subscribedDate);
+            expiryDate.setMonth(expiryDate.getMonth() + 1);
+            
+            if (today >= expiryDate) {
+              await setDoc(subRef, {
+                plan: "Free",
+                remainingRequests: API_CONFIG.FREE_PLAN_REQUESTS,
+                status: "Expired",
+                lastReset: today.toISOString(),
+                subscribedDate: deleteField(),
+                backupRequests: deleteField()
+              }, { merge: true });
+              
+              showNotification("Gold subscription expired. Downgraded to Free plan.", "info");
+              
+              subscriptionPlan = "Free";
+              remainingRequests = API_CONFIG.FREE_PLAN_REQUESTS;
+              subscriptionStatus = "Expired";
+              
+              updateSubscriptionUI();
+              return;
+            }
+          }
+          
+          // Monthly reset logic for Free plan
+          if (subscriptionPlan === "Free") {
+            const needsReset = !lastReset || 
+              lastReset.getMonth() !== today.getMonth() || 
+              lastReset.getFullYear() !== today.getFullYear();
+            
+            if (needsReset) {
+              await updateDoc(subRef, {
+                remainingRequests: API_CONFIG.FREE_PLAN_REQUESTS,
+                lastReset: today.toISOString()
+              });
+              
+              remainingRequests = API_CONFIG.FREE_PLAN_REQUESTS;
+              showNotification("Monthly request limit reset! You have 1 free request.", "success");
+            }
+          }
+          
+        } else {
+          // First-time user setup
+          await setDoc(subRef, {
+            plan: "Free",
+            remainingRequests: API_CONFIG.FREE_PLAN_REQUESTS,
+            status: "Active",
+            lastReset: today.toISOString(),
+            createdAt: serverTimestamp()
+          });
+          
+          subscriptionPlan = "Free";
+          remainingRequests = API_CONFIG.FREE_PLAN_REQUESTS;
+          subscriptionStatus = "Active";
+        }
+        
+        updateSubscriptionUI();
+        
+      } catch (error) {
+        console.error("Subscription check error:", error);
+        showNotification("Error loading subscription", "error");
+      }
+    }
+
+    // ✅ Update Subscription UI
+    function updateSubscriptionUI() {
+      // Update counters
+      const remainingEl = document.getElementById('remaining-requests');
+      const counterEl = document.getElementById('requests-counter');
+      
+      if (remainingEl) remainingEl.textContent = remainingRequests;
+      if (counterEl) counterEl.textContent = remainingRequests;
+      
+      // Update progress bar
+      const totalRequests = subscriptionPlan === "Gold" ? API_CONFIG.GOLD_PLAN_REQUESTS : API_CONFIG.FREE_PLAN_REQUESTS;
+      const progressPercent = (remainingRequests / totalRequests) * 100;
+      const progressEl = document.getElementById('requests-progress');
+      if (progressEl) progressEl.style.width = `${progressPercent}%`;
+      
+      // Update plan display
+      const planTitle = document.getElementById('plan-title');
+      const planDesc = document.getElementById('plan-description');
+      const planIcon = document.getElementById('plan-icon');
+      const planCard = document.getElementById('subscription-plan-card');
+      const statusText = document.getElementById('status-text');
+      const statusDetails = document.getElementById('status-details');
+      const upgradeBtn = document.getElementById('upgrade-btn');
+      const userPlan = document.getElementById('userPlan');
+      
+      if (subscriptionPlan === "Gold") {
+        if (planTitle) planTitle.textContent = "Gold Plan";
+        if (planDesc) planDesc.textContent = "Premium service access";
+        if (planIcon) planIcon.textContent = "👑";
+        if (planCard) planCard.className = "subscription-plan plan-gold";
+        if (userPlan) userPlan.textContent = "Gold Plan User";
+        
+        // Update features
+        const featuresEl = document.getElementById('plan-features');
+        if (featuresEl) {
+          featuresEl.innerHTML = `
+            <li>${API_CONFIG.GOLD_PLAN_REQUESTS} service requests per month</li>
+            <li>Priority provider matching</li>
+            <li>24/7 premium support</li>
+            <li>No geographical restrictions</li>
+            <li>Instant assignment</li>
+          `;
+        }
+        
+      } else {
+        if (planTitle) planTitle.textContent = "Free Plan";
+        if (planDesc) planDesc.textContent = "Basic service access";
+        if (planIcon) planIcon.textContent = "🆓";
+        if (planCard) planCard.className = "subscription-plan plan-free";
+        if (userPlan) userPlan.textContent = "Free Plan User";
+        
+        // Update features
+        const featuresEl = document.getElementById('plan-features');
+        if (featuresEl) {
+          featuresEl.innerHTML = `
+            <li>${API_CONFIG.FREE_PLAN_REQUESTS} service request per month</li>
+            <li>Standard provider matching</li>
+            <li>Basic support</li>
+            <li>Local providers only</li>
+          `;
+        }
+      }
+      
+      // Update status
+      if (statusText) statusText.textContent = subscriptionStatus;
+      if (statusDetails) statusDetails.textContent = getStatusDetails(subscriptionStatus);
+      
+      // Style status based on state
+      const statusDiv = document.getElementById('subscription-status');
+      if (statusDiv) statusDiv.style.background = getStatusColor(subscriptionStatus);
+      
+      // Configure upgrade button
+      if (upgradeBtn) configureUpgradeButton(upgradeBtn);
+    }
+
+    // ✅ Get Status Details
+    function getStatusDetails(status) {
+      const details = {
+        "Active": "Your subscription is active and ready to use",
+        "Pending": "Gold upgrade pending admin approval (24-48 hours)",
+        "Rejected": "Gold upgrade was rejected. Using Free plan",
+        "Expired": "Gold plan expired. Downgraded to Free",
+        "Suspended": "Subscription suspended. Contact support"
+      };
+      return details[status] || "Active";
+    }
+
+    // ✅ Get Status Color
+    function getStatusColor(status) {
+      const colors = {
+        "Active": "#d4edda",
+        "Pending": "#fff3cd",
+        "Rejected": "#f8d7da",
+        "Expired": "#d6d8db",
+        "Suspended": "#f5c6cb"
+      };
+      return colors[status] || "#f8f9fa";
+    }
+
+    // ✅ Configure Upgrade Button
+    function configureUpgradeButton(button) {
+      button.innerHTML = '';
+      
+      if (subscriptionStatus === "Pending") {
+        button.innerHTML = '<i class="fas fa-clock"></i> Pending Approval';
+        button.disabled = true;
+        button.className = "warning";
+      } else if (subscriptionPlan === "Gold") {
+        button.innerHTML = '<i class="fas fa-crown"></i> Gold Plan Active';
+        button.disabled = true;
+        button.className = "success";
+      } else if (subscriptionStatus === "Rejected") {
+        button.innerHTML = `<i class="fas fa-exclamation-circle"></i> Upgrade to Gold (Previously Rejected)`;
+        button.disabled = false;
+        button.className = "danger";
+      } else {
+        button.innerHTML = `<i class="fas fa-crown"></i> Upgrade to Gold (${API_CONFIG.GOLD_PLAN_CURRENCY}${API_CONFIG.GOLD_PLAN_PRICE}/month)`;
+        button.disabled = false;
+        button.className = "";
+      }
+    }
+
+    // ✅ Request Gold Plan
+    async function requestGoldPlan() {
+      try {
+        // Check current subscription
+        const subSnap = await getDoc(doc(db, "subscriptions", userId));
+        const currentData = subSnap.exists() ? subSnap.data() : {};
+        
+        // Prevent duplicate requests
+        if (currentData.status === "Pending") {
+          showNotification("Gold upgrade is already pending approval", "info");
+          return;
+        }
+        
+        // Backup current requests
+        const backupRequests = currentData.remainingRequests || API_CONFIG.FREE_PLAN_REQUESTS;
+        
+        // Request Gold plan
+        await setDoc(doc(db, "subscriptions", userId), {
+          plan: "Gold",
+          remainingRequests: 0, // Will be set to 35 after approval
+          status: "Pending",
+          subscribedDate: new Date().toISOString(),
+          backupRequests: backupRequests,
+          requestedAt: serverTimestamp(),
+          previousPlan: currentData.plan || "Free"
+        }, { merge: true });
+        
+        // Notify admin
+        await notifyAdminAboutUpgradeRequest(userId, backupRequests);
+        
+        showNotification("Gold Plan requested! Awaiting admin approval (24-48 hours).", "success");
+        
+        // Update UI immediately
+        subscriptionStatus = "Pending";
+        subscriptionPlan = "Gold";
+        updateSubscriptionUI();
+        
+      } catch (error) {
+        console.error("Gold plan request error:", error);
+        showNotification("Failed to request Gold plan. Please try again.", "error");
+      }
+    }
+
+    // ✅ Notify Admin
+    async function notifyAdminAboutUpgradeRequest(userId, backupRequests) {
+      try {
+        // Create notification for admin
+        await addDoc(collection(db, "adminNotifications"), {
+          type: "UPGRADE_REQUEST",
+          userId: userId,
+          username: userData.username || "Unknown User",
+          backupRequests: backupRequests,
+          timestamp: serverTimestamp(),
+          status: "unread",
+          actionRequired: true
+        });
+        
+        console.log("Admin notified about upgrade request");
+      } catch (error) {
+        console.error("Failed to notify admin:", error);
+      }
+    }
+
+    // ✅ Handle Service Request
+    async function handleServiceRequest(e) {
+      e.preventDefault();
+      
+      // Validation
+      if (subscriptionStatus === "Pending") {
+        showNotification("Gold upgrade is pending approval. Please wait.", "info");
+        return;
+      }
+      
+      if (remainingRequests <= 0) {
+        showNotification("No requests left. Upgrade to Gold or wait for monthly reset.", "error");
+        return;
+      }
+      
+      const serviceType = document.getElementById("service").value;
+      const description = document.getElementById("service-description").value;
+      
+      if (!serviceType) {
+        showNotification("Please select a service type", "error");
+        return;
+      }
+      
+      const requestBtn = document.getElementById("request-service-btn");
+      const originalContent = requestBtn.innerHTML;
+      
+      // Start search animation
+      requestBtn.innerHTML = '<div class="loading"></div> Searching for providers...';
+      requestBtn.disabled = true;
+      
+      // Show progress bar
+      const progressBar = document.getElementById("search-progress");
+      const progressFill = progressBar.querySelector(".progress-fill");
+      progressBar.classList.remove("hidden");
+      
+      // Animate progress
+      let progress = 0;
+      const progressInterval = setInterval(() => {
+        progress += 10;
+        progressFill.style.width = `${Math.min(progress, 90)}%`;
+      }, 300);
+      
+      try {
+        // Step 1: Find service provider
+        progressFill.style.width = "30%";
+        const serviceProvider = await autoAssignServiceProvider(serviceType);
+        
+        if (!serviceProvider) {
+          clearInterval(progressInterval);
+          progressFill.style.width = "100%";
+          progressFill.style.background = "#dc3545";
+          showNotification("No available providers found. Try different service or location.", "error");
+          
+          setTimeout(() => {
+            requestBtn.innerHTML = originalContent;
+            requestBtn.disabled = false;
+            progressBar.classList.add("hidden");
+            progressFill.style.background = "";
+          }, 2000);
+          return;
+        }
+        
+        // Step 2: Create service request
+        progressFill.style.width = "60%";
+        const serviceData = {
+          serviceName: serviceType,
+          serviceDescription: description,
+          requestedBy: userId,
+          assignedTo: serviceProvider.id,
+          providerName: serviceProvider.name,
+          status: "Assigned",
+          userLocation: {
+            city: userData.city,
+            state: userData.state,
+            address: userData.address
+          },
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          scheduledDate: new Date().toISOString(),
+          priority: subscriptionPlan === "Gold" ? "High" : "Normal"
+        };
+        
+        const docRef = await addDoc(collection(db, "services"), serviceData);
+        latestServiceId = docRef.id;
+        
+        // Step 3: Update subscription requests
+        progressFill.style.width = "80%";
+        await updateDoc(doc(db, "subscriptions", userId), {
+          remainingRequests: increment(-1),
+          lastServiceRequest: serverTimestamp()
+        });
+        
+        // Step 4: Update provider's active requests
+        progressFill.style.width = "90%";
+        await updateDoc(doc(db, "users", serviceProvider.id), {
+          activeRequests: increment(1),
+          lastAssigned: serverTimestamp()
+        });
+        
+        // Complete
+        clearInterval(progressInterval);
+        progressFill.style.width = "100%";
+        progressFill.style.background = "#28a745";
+        
+        showNotification(`Service requested! Assigned to ${serviceProvider.name}. Request ID: ${docRef.id}`, "success");
+        
+        // Update local counter
+        remainingRequests--;
+        updateSubscriptionUI();
+        
+        // Refresh after delay
+        setTimeout(() => {
+          location.reload();
+        }, 2000);
+        
+      } catch (error) {
+        console.error("Service request error:", error);
+        clearInterval(progressInterval);
+        
+        showNotification("Failed to request service. Please try again.", "error");
+        
+        requestBtn.innerHTML = originalContent;
+        requestBtn.disabled = false;
+        progressBar.classList.add("hidden");
+      }
+    }
+
+    // ✅ Auto Assign Service Provider
+    async function autoAssignServiceProvider(serviceType) {
+      try {
+        console.log(`Searching for ${serviceType} provider...`);
+        
+        // Get user location data
+        const userLocation = {
+          city: userData.city || "",
+          state: userData.state || "",
+          address: userData.address || ""
+        };
+        
+        // Try local Firestore providers
+        let provider = await findLocalProvider(serviceType, userLocation);
+        if (provider) {
+          console.log("Found local provider:", provider.name);
+          return provider;
+        }
+        
+        // Try to find any available provider
+        const q = query(
+          collection(db, "users"),
+          where("role", "==", "service_provider"),
+          where("serviceTypes", "array-contains", serviceType),
+          where("availability", "==", "Available")
+        );
+        
+        const snapshot = await getDocs(q);
+        if (!snapshot.empty) {
+          // Find best provider
+          let bestProvider = null;
+          let bestScore = -1;
+          
+          snapshot.forEach(doc => {
+            const providerData = doc.data();
+            const score = calculateProviderScore(providerData);
+            
+            if (score > bestScore && (providerData.activeRequests || 0) < (providerData.maxActiveRequests || 5)) {
+              bestScore = score;
+              bestProvider = {
+                id: doc.id,
+                name: providerData.username || providerData.name || "Service Provider",
+                rating: providerData.rating || 3.5,
+                completedJobs: providerData.completedJobs || 0,
+                ...providerData
+              };
+            }
+          });
+          
+          if (bestProvider) {
+            return bestProvider;
+          }
+        }
+        
+        // Create a mock provider if none found
+        return {
+          id: "mock_provider_" + Date.now(),
+          name: "Local " + serviceType + " Service",
+          rating: 4.0,
+          completedJobs: 10
+        };
+        
+      } catch (error) {
+        console.error("Provider search error:", error);
+        return null;
+      }
+    }
+
+    // ✅ Find Local Provider from Firestore
+    async function findLocalProvider(serviceType, location) {
+      try {
+        // Build search queries
+        const queries = [];
+        
+        // Search by city
+        if (location.city) {
+          queries.push(
+            query(collection(db, "users"),
+              where("role", "==", "service_provider"),
+              where("serviceTypes", "array-contains", serviceType),
+              where("city", "==", location.city),
+              where("availability", "==", "Available")
+            )
+          );
+        }
+        
+        // Search by state (broader search)
+        if (location.state) {
+          queries.push(
+            query(collection(db, "users"),
+              where("role", "==", "service_provider"),
+              where("serviceTypes", "array-contains", serviceType),
+              where("state", "==", location.state),
+              where("availability", "==", "Available")
+            )
+          );
+        }
+        
+        // Execute queries
+        for (const q of queries) {
+          try {
+            const snapshot = await getDocs(q);
+            
+            if (!snapshot.empty) {
+              // Find best provider
+              let bestProvider = null;
+              let bestScore = -1;
+              
+              snapshot.forEach(doc => {
+                const provider = doc.data();
+                const score = calculateProviderScore(provider);
+                
+                if (score > bestScore && (provider.activeRequests || 0) < (provider.maxActiveRequests || 5)) {
+                  bestScore = score;
+                  bestProvider = {
+                    id: doc.id,
+                    name: provider.username || provider.name || "Service Provider",
+                    rating: provider.rating || 3.5,
+                    completedJobs: provider.completedJobs || 0,
+                    ...provider
+                  };
+                }
+              });
+              
+              if (bestProvider) {
+                return bestProvider;
+              }
+            }
+          } catch (error) {
+            console.error("Query error:", error);
+            continue;
+          }
+        }
+        
+        return null;
+        
+      } catch (error) {
+        console.error("Local provider search error:", error);
+        return null;
+      }
+    }
+
+    // ✅ Calculate Provider Score
+    function calculateProviderScore(provider) {
+      let score = 0;
+      
+      // Rating (0-50 points)
+      score += (provider.rating || 0) * 10;
+      
+      // Completed jobs (0-30 points)
+      score += Math.min(provider.completedJobs || 0, 30);
+      
+      // Availability (10 points)
+      if (provider.availability === "Available") score += 10;
+      
+      // Verification (10 points)
+      if (provider.verificationStatus === "verified") score += 10;
+      
+      // Subtract for active requests
+      score -= (provider.activeRequests || 0) * 2;
+      
+      return Math.max(0, score);
+    }
+
+    // ✅ Load User Services
+    async function loadUserServices() {
+      try {
+        const q = query(
+          collection(db, "services"), 
+          where("requestedBy", "==", userId),
+          orderBy("createdAt", "desc")
+        );
+        
+        const querySnapshot = await getDocs(q);
+        const serviceContainer = document.getElementById("assigned-service");
+        const feedbackSelect = document.getElementById("service-select");
+        
+        // Clear previous content
+        if (serviceContainer) serviceContainer.innerHTML = "";
+        if (feedbackSelect) feedbackSelect.innerHTML = '<option value="" disabled selected>Select a completed service</option>';
+        
+        if (querySnapshot.empty) {
+          if (serviceContainer) {
+            serviceContainer.innerHTML = `
+              <div style="text-align: center; padding: 40px 20px;">
+                <i class="fas fa-clipboard" style="font-size: 48px; color: #6c757d; margin-bottom: 20px;"></i>
+                <p style="color: #6c757d;">No services requested yet. Request your first service!</p>
+              </div>
+            `;
+          }
+          return;
+        }
+        
+        let hasCompletedServices = false;
+        
+        querySnapshot.forEach(async (docSnap) => {
+          const data = docSnap.data();
+          const serviceId = docSnap.id;
+          
+          // Get provider details
+          let providerName = "Not Assigned";
+          let providerPhone = "";
+          
+          if (data.assignedTo) {
+            try {
+              const providerDoc = await getDoc(doc(db, "users", data.assignedTo));
+              if (providerDoc.exists()) {
+                const providerData = providerDoc.data();
+                providerName = providerData.username || providerData.name || "Service Provider";
+                providerPhone = providerData.phone || "";
+              }
+            } catch (error) {
+              console.error("Error fetching provider:", error);
+            }
+          }
+          
+          // Format date
+          const requestDate = data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
+          const formattedDate = requestDate.toLocaleDateString('en-IN', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+          
+          // Status badge
+          const statusBadge = getStatusBadge(data.status);
+          
+          // Create service card
+          const serviceCard = document.createElement('div');
+          serviceCard.className = 'service-card';
+          serviceCard.id = `service-${serviceId}`;
+          
+          serviceCard.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 15px;">
+              <div>
+                <h3 style="margin: 0 0 5px 0; color: #333;">${data.serviceName}</h3>
+                <div style="color: #666; font-size: 14px;">
+                  <i class="far fa-calendar"></i> ${formattedDate}
+                </div>
+              </div>
+              <div class="status-badge ${statusBadge.class}">${statusBadge.text}</div>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+              <div style="font-weight: 600; margin-bottom: 5px;">
+                <i class="fas fa-user-tie"></i> Service Provider
+              </div>
+              <div style="color: #555;">${providerName}</div>
+              ${providerPhone ? `<div style="color: #666; font-size: 14px; margin-top: 3px;">
+                <i class="fas fa-phone"></i> ${providerPhone}
+              </div>` : ''}
+            </div>
+            
+            ${data.serviceDescription ? `
+            <div style="margin-bottom: 15px;">
+              <div style="font-weight: 600; margin-bottom: 5px;">
+                <i class="fas fa-file-alt"></i> Description
+              </div>
+              <div style="color: #555; font-size: 14px;">${data.serviceDescription}</div>
+            </div>` : ''}
+            
+            <div class="button-group">
+              ${data.assignedTo ? `
+              <button onclick="viewProviderProfile('${data.assignedTo}')" class="secondary">
+                <i class="fas fa-eye"></i> View Provider
+              </button>` : ''}
+              
+              ${data.status === 'Assigned' || data.status === 'In Progress' ? `
+              <button onclick="cancelService('${serviceId}')" class="danger">
+                <i class="fas fa-times"></i> Cancel
+              </button>` : ''}
+              
+              ${data.status === 'Completed' && !data.feedback ? `
+              <button onclick="enableFeedback('${serviceId}')" class="success">
+                <i class="fas fa-star"></i> Give Feedback
+              </button>` : ''}
+              
+              ${data.status === 'Completed' && data.feedback ? `
+              <button class="success" disabled>
+                <i class="fas fa-check"></i> Feedback Submitted
+              </button>` : ''}
+            </div>
+            
+            ${data.feedback ? `
+            <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+              <div style="font-weight: 600; margin-bottom: 5px;">
+                <i class="fas fa-comment"></i> Your Feedback
+              </div>
+              <div style="color: #666; margin-bottom: 5px;">
+                Rating: ${'★'.repeat(data.rating || 0)}${'☆'.repeat(5 - (data.rating || 0))}
+              </div>
+              <div style="color: #555; font-size: 14px;">${data.feedback}</div>
+            </div>` : ''}
+          `;
+          
+          if (serviceContainer) serviceContainer.appendChild(serviceCard);
+          
+          // Add to feedback dropdown if completed
+          if (data.status === 'Completed' && !data.feedback && feedbackSelect) {
+            hasCompletedServices = true;
+            const option = document.createElement('option');
+            option.value = serviceId;
+            option.textContent = `${data.serviceName} - ${formattedDate}`;
+            feedbackSelect.appendChild(option);
+          }
+        });
+        
+        // Show feedback section if there are completed services
+        const section4 = document.getElementById("section-4");
+        if (section4) section4.classList.toggle("hidden", !hasCompletedServices);
+        
+      } catch (error) {
+        console.error("Error loading services:", error);
+        showNotification("Error loading service history", "error");
+      }
+    }
+
+    // ✅ Get Status Badge
+    function getStatusBadge(status) {
+      const statuses = {
+        "Assigned": { text: "Assigned", class: "status-assigned" },
+        "In Progress": { text: "In Progress", class: "status-pending" },
+        "Completed": { text: "Completed", class: "status-completed" },
+        "Cancelled": { text: "Cancelled", class: "status-cancelled" },
+        "Closed": { text: "Closed", class: "status-completed" }
+      };
+      
+      return statuses[status] || { text: status, class: "status-pending" };
+    }
+
+    // ✅ Setup Rating Stars
+    function setupRatingStars() {
+      const stars = document.querySelectorAll('.rating-star');
+      const ratingInput = document.getElementById('rating');
+      const ratingText = document.getElementById('rating-text');
+      
+      if (!stars.length || !ratingInput || !ratingText) return;
+      
+      stars.forEach(star => {
+        star.addEventListener('click', function() {
+          selectedRating = parseInt(this.getAttribute('data-value'));
+          ratingInput.value = selectedRating;
+          
+          // Update star display
+          stars.forEach((s, index) => {
+            if (index < selectedRating) {
+              s.style.color = '#ffc107';
+              s.classList.remove('far');
+              s.classList.add('fas');
+            } else {
+              s.style.color = '#ddd';
+              s.classList.remove('fas');
+              s.classList.add('far');
+            }
+          });
+          
+          // Update text
+          const texts = ["Poor", "Fair", "Good", "Very Good", "Excellent"];
+          ratingText.textContent = `${selectedRating} star${selectedRating > 1 ? 's' : ''} - ${texts[selectedRating - 1]}`;
+          ratingText.style.color = '#333';
+        });
+        
+        // Hover effect
+        star.addEventListener('mouseover', function() {
+          const hoverRating = parseInt(this.getAttribute('data-value'));
+          stars.forEach((s, index) => {
+            s.style.color = index < hoverRating ? '#ffc107' : '#ddd';
+          });
+        });
+        
+        star.addEventListener('mouseout', function() {
+          stars.forEach((s, index) => {
+            s.style.color = index < selectedRating ? '#ffc107' : '#ddd';
+          });
+        });
+      });
+    }
+
+    // ✅ Handle Feedback Submit
+    async function handleFeedbackSubmit(e) {
+      e.preventDefault();
+      
+      if (!latestServiceId) {
+        showNotification("Please select a service first", "error");
+        return;
+      }
+      
+      const rating = parseInt(document.getElementById('rating').value);
+      const feedback = document.getElementById('feedback').value.trim();
+      
+      if (!rating || rating < 1 || rating > 5) {
+        showNotification("Please provide a rating between 1 and 5 stars", "error");
+        return;
+      }
+      
+      if (feedback.length < 10) {
+        showNotification("Please write more detailed feedback (minimum 10 characters)", "error");
+        return;
+      }
+      
+      const submitBtn = document.getElementById('submit-feedback-btn');
+      const originalContent = submitBtn.innerHTML;
+      submitBtn.innerHTML = '<div class="loading"></div> Submitting...';
+      submitBtn.disabled = true;
+      
+      try {
+        // Get service details
+        const serviceDoc = await getDoc(doc(db, "services", latestServiceId));
+        if (!serviceDoc.exists()) {
+          throw new Error("Service not found");
+        }
+        
+        const serviceData = serviceDoc.data();
+        
+        // Update service with feedback
+        await updateDoc(doc(db, "services", latestServiceId), {
+          feedback: feedback,
+          rating: rating,
+          feedbackDate: serverTimestamp(),
+          status: "Closed",
+          updatedAt: serverTimestamp()
+        });
+        
+        // Update provider rating if assigned
+        if (serviceData.assignedTo) {
+          await updateProviderRating(serviceData.assignedTo, rating);
+        }
+        
+        showNotification("Thank you for your feedback!", "success");
+        
+        // Reset form
+        document.getElementById('feedback-form').reset();
+        latestServiceId = null;
+        
+        // Reset stars
+        document.querySelectorAll('.rating-star').forEach(star => {
+          star.style.color = '#ddd';
+          star.classList.remove('fas');
+          star.classList.add('far');
+        });
+        document.getElementById('rating-text').textContent = "Not rated yet";
+        document.getElementById('rating-text').style.color = "#666";
+        
+        // Refresh services
+        setTimeout(() => {
+          loadUserServices();
+          submitBtn.innerHTML = originalContent;
+          submitBtn.disabled = false;
+        }, 1000);
+        
+      } catch (error) {
+        console.error("Feedback submit error:", error);
+        showNotification("Failed to submit feedback. Please try again.", "error");
+        submitBtn.innerHTML = originalContent;
+        submitBtn.disabled = false;
+      }
+    }
+
+    // ✅ Update Provider Rating
+    async function updateProviderRating(providerId, newRating) {
+      try {
+        const providerRef = doc(db, "users", providerId);
+        const providerDoc = await getDoc(providerRef);
+        
+        if (providerDoc.exists()) {
+          const providerData = providerDoc.data();
+          const currentRating = providerData.rating || 3.5;
+          const totalRatings = providerData.totalRatings || 0;
+          const completedJobs = (providerData.completedJobs || 0) + 1;
+          
+          // Calculate new average
+          const newAverage = totalRatings > 0 
+            ? ((currentRating * totalRatings) + newRating) / (totalRatings + 1)
+            : newRating;
+          
+          await updateDoc(providerRef, {
+            rating: newAverage.toFixed(1),
+            totalRatings: totalRatings + 1,
+            completedJobs: completedJobs,
+            lastRatingUpdate: serverTimestamp()
+          });
+          
+          console.log(`Updated provider ${providerId} rating to ${newAverage.toFixed(1)}`);
+        }
+      } catch (error) {
+        console.error("Error updating provider rating:", error);
+      }
+    }
+
+    // ✅ Cancel Service
+    window.cancelService = async function(serviceId) {
+      if (!confirm("Are you sure you want to cancel this service request?")) {
+        return;
+      }
+      
+      try {
+        await updateDoc(doc(db, "services", serviceId), {
+          status: "Cancelled",
+          cancelledAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+        
+        // Refund the request if within reasonable time
+        const serviceDoc = await getDoc(doc(db, "services", serviceId));
+        if (serviceDoc.exists()) {
+          const serviceData = serviceDoc.data();
+          const createdDate = serviceData.createdAt?.toDate ? serviceData.createdAt.toDate() : new Date(serviceData.createdAt);
+          const hoursSinceRequest = (new Date() - createdDate) / (1000 * 60 * 60);
+          
+          // Refund if cancelled within 1 hour
+          if (hoursSinceRequest < 1) {
+            await updateDoc(doc(db, "subscriptions", userId), {
+              remainingRequests: increment(1)
+            });
+            remainingRequests++;
+            updateSubscriptionUI();
+            showNotification("Service cancelled and request refunded", "success");
+          } else {
+            showNotification("Service cancelled", "info");
+          }
+        }
+        
+        // Update provider's active requests
+        if (serviceData.assignedTo) {
+          await updateDoc(doc(db, "users", serviceData.assignedTo), {
+            activeRequests: increment(-1)
+          });
+        }
+        
+        // Refresh
+        setTimeout(() => location.reload(), 1000);
+        
+      } catch (error) {
+        console.error("Cancel service error:", error);
+        showNotification("Failed to cancel service", "error");
+      }
+    };
+
+    // ✅ Enable Feedback
+    window.enableFeedback = function(serviceId) {
+      latestServiceId = serviceId;
+      const serviceSelect = document.getElementById('service-select');
+      if (serviceSelect) serviceSelect.value = serviceId;
+      const section4 = document.getElementById('section-4');
+      if (section4) section4.scrollIntoView({ behavior: 'smooth' });
+      showNotification("Please provide your feedback for this service", "info");
+    };
+
+    // ✅ View Provider Profile
+    window.viewProviderProfile = function(providerId) {
+      window.open(`profile.html?id=${providerId}`, '_blank');
+    };
+
+    // ✅ Export for use in HTML
+    window.requestGoldPlan = requestGoldPlan;
+
+  </script>
 </body>
-              </html>
+  </html>
