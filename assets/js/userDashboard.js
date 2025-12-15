@@ -24,7 +24,7 @@ auth.onAuthStateChanged(async (user) => {
   await loadUserServices();
 });
 
-// ✅ Load Profile
+// ✅ Load Profile (UNCHANGED)
 async function loadUserProfile() {
   const userDoc = await getDoc(doc(db, "users", userId));
   if (userDoc.exists()) {
@@ -60,7 +60,7 @@ document.getElementById("profile-form").addEventListener("submit", async (e) => 
   location.reload();
 });
 
-// ✅ Check Subscription & Handle Auto-logic
+// ✅ FIXED Subscription Check - Restores EXACT previous requests
 async function checkSubscription() {
   const subRef = doc(db, "subscriptions", userId);
   const subSnap = await getDoc(subRef);
@@ -74,19 +74,19 @@ async function checkSubscription() {
     const subscribedDate = data.subscribedDate ? new Date(data.subscribedDate) : null;
     const lastReset = data.lastReset ? new Date(data.lastReset) : null;
 
-    // ✅ If Gold Plan was Rejected, revert to Free and restore backupRequests
+    // ✅ FIXED: Gold Rejection - Restore EXACT previous requests (NOT 5)
     if (subscriptionPlan === "Gold" && subscriptionStatus === "Rejected") {
-      const oldReq = typeof data.backupRequests === "number" ? data.backupRequests : 0;
-
+      const previousRequests = data.backupRequests ?? 1;
+      
       await setDoc(subRef, {
         plan: "Free",
         status: "Active",
-        remainingRequests: oldReq,
+        remainingRequests: previousRequests, // ✅ Exact restore
         subscribedDate: null,
         backupRequests: deleteField()
       }, { merge: true });
 
-      alert(`Gold Plan was rejected. Restored your previous ${oldReq} request(s).`);
+      alert(`Gold Plan rejected. Restored your previous ${previousRequests} request(s).`);
       location.reload();
       return;
     }
@@ -124,7 +124,7 @@ async function checkSubscription() {
           lastReset: today.toISOString()
         });
 
-        alert("You’ve received 1 free request for this month.");
+        alert("You've received 1 free request for this month.");
         location.reload();
         return;
       }
@@ -149,7 +149,6 @@ async function checkSubscription() {
     }
 
   } else {
-    // ✅ First-time user setup
     await setDoc(subRef, {
       plan: "Free",
       remainingRequests: 1,
@@ -160,27 +159,26 @@ async function checkSubscription() {
   }
 }
 
-// ✅ Request Gold Plan
+// ✅ FIXED Request Gold Plan - Correct backup
 window.requestGoldPlan = async () => {
   const subSnap = await getDoc(doc(db, "subscriptions", userId));
-  const existing = subSnap.exists() ? subSnap.data() : null;
+  const existing = subSnap.exists() ? subSnap.data() : { remainingRequests: 1 };
 
-  // Backup old requests before switching
-  const backup = existing ? existing.remainingRequests : 1;
+  const backupRequests = existing.remainingRequests; // ✅ Save EXACT count
 
   await setDoc(doc(db, "subscriptions", userId), {
     plan: "Gold",
     remainingRequests: 35,
     status: "Pending",
     subscribedDate: new Date().toISOString(),
-    backupRequests: backup
+    backupRequests: backupRequests // ✅ Exact previous count saved
   }, { merge: true });
 
   alert("Gold Plan requested. Awaiting Admin approval.");
   location.reload();
 };
 
-// ✅ Request Service
+// ✅ FIXED Request Service - Production Safe
 document.getElementById("request-service-form").addEventListener("submit", async (e) => {
   e.preventDefault();
 
@@ -198,7 +196,7 @@ document.getElementById("request-service-form").addEventListener("submit", async
   const serviceProvider = await autoAssignServiceProvider();
 
   if (!serviceProvider) {
-    alert("No available service providers. Try again later.");
+    alert("No service provider available in your area. Admin will contact you soon.");
     return;
   }
 
@@ -206,7 +204,8 @@ document.getElementById("request-service-form").addEventListener("submit", async
     serviceName: service,
     requestedBy: userId,
     assignedTo: serviceProvider,
-    status: "Assigned"
+    status: "Assigned",
+    timestamp: new Date().toISOString()
   });
 
   latestServiceId = docRef.id;
@@ -215,340 +214,180 @@ document.getElementById("request-service-form").addEventListener("submit", async
     remainingRequests: remainingRequests - 1
   });
 
-  alert("Service Requested and Assigned!");
+  alert("Service Requested and Assigned Successfully!");
   location.reload();
 });
 
-
-// ✅ Function to Auto Assign Best Service Provider
+// 🔥 ✅ MAIN FIX: Production-Safe Auto Assign (Firestore + OSM ONLY)
 async function autoAssignServiceProvider() {
-  let serviceType = document.getElementById("service").value.toLowerCase().trim();
+  const serviceType = document.getElementById("service").value.toLowerCase().trim();
 
-  // ✅ Get User's Sub-District
-  const userRef = await getDoc(doc(db, "users", userId));
-  if (!userRef.exists()) return null;
-  const userSubDistrict = userRef.data().subDistrict;
-  const userDistrict = userRef.data().district; // Assuming district is also available
-  const userCity = userRef.data().city; // City level fallback
-  const userState = userRef.data().state; // State level fallback
-
-  // ✅ Check Firestore for Providers in Sub-District
-  let providers = await findProviders(serviceType, userSubDistrict);
-
-  // ✅ If no providers found, search in the District
-  if (providers.length === 0) {
-    console.log("No providers found in sub-district. Searching in district...");
-    providers = await findProviders(serviceType, userDistrict);
+  // 🔹 Get user location hierarchy
+  const userSnap = await getDoc(doc(db, "users", userId));
+  if (!userSnap.exists()) {
+    console.error("User profile not found");
+    return null;
   }
 
-  // ✅ If still no providers, search in City
-  if (providers.length === 0) {
-    console.log("No providers found in district. Searching in city...");
-    providers = await findProviders(serviceType, userCity);
+  const userData = userSnap.data();
+  const { subDistrict, district, city, state } = userData;
+
+  console.log("🔍 Searching providers for:", serviceType, "in locations:", { subDistrict, district, city });
+
+  // 1️⃣ PRIORITY 1: Firestore SubDistrict
+  let providerId = await findProviderFromDB(serviceType, { subDistrict });
+  if (providerId) {
+    console.log("✅ Found provider in SUBDISTRICT");
+    return providerId;
   }
 
-  // ✅ If Providers are found, sort and return the best one
-  if (providers.length > 0) {
-    let bestProvider = providers
-      .sort((a, b) => 
-        (b.rating + b.completedJobs) - (a.rating + a.completedJobs) ||
-        a.activeRequests - b.activeRequests ||
-        new Date(a.signupDate) - new Date(b.signupDate)
-      )
-      .find(provider => provider.availability === "Available");
-
-    return bestProvider ? bestProvider.id : null;
+  // 2️⃣ PRIORITY 2: Firestore District  
+  providerId = await findProviderFromDB(serviceType, { district });
+  if (providerId) {
+    console.log("✅ Found provider in DISTRICT");
+    return providerId;
   }
 
-  // ✅ **If No Provider Found, Search External APIs**
-  console.log("No local providers found. Searching external APIs...");
-  let newProvider = await findServiceProviderEnhanced(serviceType, userSubDistrict, userDistrict, userCity, userState);
-  if (newProvider) {
-    return newProvider.id; // Return newly added provider's ID
+  // 3️⃣ PRIORITY 3: Firestore City
+  providerId = await findProviderFromDB(serviceType, { city });
+  if (providerId) {
+    console.log("✅ Found provider in CITY");
+    return providerId;
   }
+
+  // 4️⃣ EMERGENCY: OpenStreetMap (FREE & Legal)
+  console.log("🔍 No DB providers found. Trying OpenStreetMap...");
+  const osmProvider = await findProviderFromOSM(serviceType, subDistrict || district || city || state);
+  if (osmProvider) {
+    console.log("✅ Found OSM provider:", osmProvider.name);
+    return osmProvider.id;
+  }
+
+  console.log("❌ No providers found anywhere");
   return null;
 }
 
-// ✅ **Find Service Provider using Multiple APIs**
-async function findServiceProviderEnhanced(serviceType, subDistrict, district, city, state) {
-  // Try APIs in order of reliability and cost
-  const locationHierarchy = [subDistrict, district, city, state];
-  
-  for (const location of locationHierarchy) {
-    if (!location) continue;
-    
-    try {
-      // Try free APIs first
-      let provider = await tryFreeAPIs(serviceType, location);
-      if (provider) return provider;
-      
-      // Then try APIs that require keys
-      provider = await tryKeyAPIs(serviceType, location);
-      if (provider) return provider;
-      
-    } catch (error) {
-      console.error(`Error searching in ${location}:`, error);
-    }
-  }
-  
-  return null;
-}
+// ✅ FIRESTORE PROVIDER SEARCH (Primary - Fast & Accurate)
+async function findProviderFromDB(serviceType, locationFilter) {
+  let constraints = [where("role", "==", "service_provider")];
 
-// ✅ **Try Free APIs (no API key required)**
-async function tryFreeAPIs(serviceType, location) {
-  // 1. OpenStreetMap (Nominatim)
-  try {
-    let osmUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${serviceType} in ${location}&extratags=1`;
-    let response = await fetch(osmUrl);
-    let data = await response.json();
-    
-    if (data.length > 0) {
-      console.log("Found provider via OpenStreetMap");
-      return await storeNewProvider(data[0], serviceType, location);
-    }
-  } catch (error) {
-    console.error("OpenStreetMap API Error:", error);
+  // Dynamic location filter
+  if (locationFilter.subDistrict) {
+    constraints.push(where("subDistrict", "==", locationFilter.subDistrict));
+  } else if (locationFilter.district) {
+    constraints.push(where("district", "==", locationFilter.district));
+  } else if (locationFilter.city) {
+    constraints.push(where("city", "==", locationFilter.city));
   }
 
-  // 2. Overpass API (for OpenStreetMap data)
-  try {
-    let overpassQuery = `[out:json][timeout:25];(node["shop"~"${serviceType}"](around:5000,${location});way["shop"~"${serviceType}"](around:5000,${location}););out body;>;out skel qt;`;
-    let overpassUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`;
-    let response = await fetch(overpassUrl);
-    let data = await response.json();
-    
-    if (data.elements && data.elements.length > 0) {
-      console.log("Found provider via Overpass API");
-      return await storeNewProvider(data.elements[0], serviceType, location);
-    }
-  } catch (error) {
-    console.error("Overpass API Error:", error);
-  }
+  const q = query(collection(db, "users"), ...constraints);
+  const snap = await getDocs(q);
 
-  // 3. Geonames (free tier available)
-  try {
-    let geonamesUrl = `http://api.geonames.org/searchJSON?q=${serviceType}&name_equals=${location}&maxRows=1&username=fixsavyhub`;
-    let response = await fetch(geonamesUrl);
-    let data = await response.json();
-    
-    if (data.geonames && data.geonames.length > 0) {
-      console.log("Found provider via Geonames");
-      return await storeNewProvider(data.geonames[0], serviceType, location);
-    }
-  } catch (error) {
-    console.error("Geonames API Error:", error);
-  }
+  if (snap.empty) return null;
 
-  // 4. Mapbox (free tier available)
-  try {
-    let mapboxUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${serviceType}.json?proximity=${location}&access_token=pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw`;
-    let response = await fetch(mapboxUrl);
-    let data = await response.json();
-    
-    if (data.features && data.features.length > 0) {
-      console.log("Found provider via Mapbox");
-      return await storeNewProvider(data.features[0], serviceType, location);
-    }
-  } catch (error) {
-    console.error("Mapbox API Error:", error);
-  }
-
-  return null;
-}
-
-// ✅ **Try APIs that require API keys**
-async function tryKeyAPIs(serviceType, location) {
-  // 1. Yelp Fusion API
-  try {
-    let yelpUrl = `https://api.yelp.com/v3/businesses/search?term=${serviceType}&location=${location}&limit=1`;
-    let response = await fetch(yelpUrl, {
-      headers: {
-        "Authorization": `Bearer ${YOUR_YELP_API_KEY}` 
-      }
-    });
-
-    let data = await response.json();
-    if (data.businesses && data.businesses.length > 0) {
-      console.log("Found provider via Yelp");
-      return await storeNewProvider(data.businesses[0], serviceType, location);
-    }
-  } catch (error) {
-    console.error("Yelp API Error:", error);
-  }
-
-  // 2. Google Places API
-  try {
-    let googleUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${serviceType}+in+${location}&key=${YOUR_GOOGLE_API_KEY}`;
-    let response = await fetch(googleUrl);
-    let data = await response.json();
-
-    if (data.results && data.results.length > 0) {
-      console.log("Found provider via Google Places");
-      return await storeNewProvider(data.results[0], serviceType, location);
-    }
-  } catch (error) {
-    console.error("Google Places API Error:", error);
-  }
-
-  // 3. Foursquare API
-  try {
-    let foursquareUrl = `https://api.foursquare.com/v3/places/search?query=${serviceType}&near=${location}`;
-    let response = await fetch(foursquareUrl, {
-      headers: { "Authorization": "fsq3zz12Qn2PtWIQM1J5Vz+da3Q/SzGR9H9X+W3IjMPYFZo=" }
-    });
-
-    let data = await response.json();
-    if (data.results && data.results.length > 0) {
-      console.log("Found provider via Foursquare");
-      return await storeNewProvider(data.results[0], serviceType, location);
-    }
-  } catch (error) {
-    console.error("Foursquare API Error:", error);
-  }
-
-  // 4. TomTom Search API
-  try {
-    let tomtomUrl = `https://api.tomtom.com/search/2/search/${serviceType}.json?limit=1&countrySet=US&lat=37.7749&lon=-122.4194&key=${YOUR_TOMTOM_API_KEY}`;
-    let response = await fetch(tomtomUrl);
-    let data = await response.json();
-
-    if (data.results && data.results.length > 0) {
-      console.log("Found provider via TomTom");
-      return await storeNewProvider(data.results[0], serviceType, location);
-    }
-  } catch (error) {
-    console.error("TomTom API Error:", error);
-  }
-
-  // 5. Here Places API
-  try {
-    let hereUrl = `https://discover.search.hereapi.com/v1/discover?at=40.730610,-73.935242&q=${serviceType}&limit=1&apiKey=${YOUR_HERE_API_KEY}`;
-    let response = await fetch(hereUrl);
-    let data = await response.json();
-
-    if (data.items && data.items.length > 0) {
-      console.log("Found provider via Here");
-      return await storeNewProvider(data.items[0], serviceType, location);
-    }
-  } catch (error) {
-    console.error("Here API Error:", error);
-  }
-
-  return null;
-}
-
-// ✅ **Store New Provider in Firestore**
-async function storeNewProvider(providerData, serviceType, location) {
-  // Normalize provider data from different APIs
-  let provider = {
-    name: getProviderName(providerData),
-    address: getProviderAddress(providerData),
-    phone: getProviderPhone(providerData),
-    website: getProviderWebsite(providerData),
-    role: "service_provider",
-    service: serviceType,
-    subDistrict: location,
-    rating: getProviderRating(providerData),
-    completedJobs: 0,
-    availability: "Available",
-    activeRequests: 0,
-    signupDate: new Date().toISOString(),
-    source: providerData.source || "external_api",
-    coordinates: getProviderCoordinates(providerData)
-  };
-
-  const docRef = await addDoc(collection(db, "users"), provider);
-  provider.id = docRef.id;
-
-  console.log(`New service provider added: ${provider.name}`);
-  return provider;
-}
-
-// Helper functions to normalize provider data from different APIs
-function getProviderName(data) {
-  if (data.name) return data.name;
-  if (data.display_name) return data.display_name.split(",")[0];
-  if (data.title) return data.title;
-  if (data.place_name) return data.place_name.split(",")[0];
-  return "Unknown Provider";
-}
-
-function getProviderAddress(data) {
-  if (data.address) return data.address;
-  if (data.location?.formatted_address) return data.location.formatted_address;
-  if (data.vicinity) return data.vicinity;
-  if (data.display_name) return data.display_name;
-  if (data.location?.address) return data.location.address;
-  return "Unknown Address";
-}
-
-function getProviderPhone(data) {
-  if (data.phone) return data.phone;
-  if (data.extratags?.phone) return data.extratags.phone;
-  if (data.contact?.phone) return data.contact.phone;
-  if (data.tel) return data.tel;
-  return "Not Available";
-}
-
-function getProviderWebsite(data) {
-  if (data.website) return data.website;
-  if (data.url) return data.url;
-  if (data.extratags?.website) return data.extratags.website;
-  if (data.contact?.website) return data.contact.website;
-  if (data.website_url) return data.website_url;
-  return "Not Available";
-}
-
-function getProviderRating(data) {
-  if (data.rating) return data.rating;
-  if (data.avg_rating) return data.avg_rating;
-  if (data.score) return data.score / 2; // Normalize to 5-point scale
-  return 3.5; // Default average rating
-}
-
-function getProviderCoordinates(data) {
-  if (data.lat && data.lon) return new GeoPoint(data.lat, data.lon);
-  if (data.geometry?.coordinates) return new GeoPoint(data.geometry.coordinates[1], data.geometry.coordinates[0]);
-  if (data.position) return new GeoPoint(data.position.lat, data.position.lng);
-  return null;
-}
-
-// ✅ **Find Providers from Firestore with Improved Matching**
-async function findProviders(serviceType, location) {
-  const q = query(collection(db, "users"),
-    where("role", "==", "service_provider"),
-    where("subDistrict", "==", location)
-  );
-
-  const providersSnapshot = await getDocs(q);
   let providers = [];
-  
-  if (!providersSnapshot.empty) {
-    providersSnapshot.forEach(docSnap => {
-      const provider = docSnap.data();
-      let providerService = provider.service.toLowerCase().trim();
+  snap.forEach((docSnap) => {
+    const p = docSnap.data();
+    const providerService = (p.service || "").toLowerCase().trim();
 
-      if (fuzzyMatch(providerService, serviceType)) {
-        providers.push({
-          id: docSnap.id,
-          rating: provider.rating || 0,
-          completedJobs: provider.completedJobs || 0,
-          availability: provider.availability || "Available",
-          activeRequests: provider.activeRequests || 0,
-          signupDate: provider.signupDate || "9999-12-31"
-        });
+    // ✅ Smart fuzzy matching
+    if (fuzzyMatch(providerService, serviceType)) {
+      providers.push({
+        id: docSnap.id,
+        rating: p.rating || 0,
+        completedJobs: p.completedJobs || 0,
+        availability: p.availability || "Available",
+        activeRequests: p.activeRequests || 0,
+        signupDate: p.signupDate || "9999-12-31"
+      });
+    }
+  });
+
+  if (!providers.length) return null;
+
+  // ✅ Select BEST provider (load balanced)
+  const best = providers
+    .filter(p => p.availability === "Available" && p.activeRequests < 5)
+    .sort((a, b) => {
+      const scoreA = (a.rating * 2) + a.completedJobs - (a.activeRequests * 0.5);
+      const scoreB = (b.rating * 2) + b.completedJobs - (b.activeRequests * 0.5);
+      return scoreB - scoreA || new Date(a.signupDate) - new Date(b.signupDate);
+    })[0];
+
+  return best ? best.id : null;
+}
+
+// ✅ OPENSTREETMAP FALLBACK (FREE, Legal, Works in Frontend)
+async function findProviderFromOSM(serviceType, location) {
+  if (!location) return null;
+
+  const queryText = `${serviceType} service in ${location}`;
+  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryText)}&limit=3&addressdetails=1`;
+
+  try {
+    const res = await fetch(url, {
+      headers: { 
+        "Accept": "application/json",
+        "User-Agent": "ServiceFinder/1.0"
       }
     });
+
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    if (!data.length) return null;
+
+    // Pick best match
+    const bestMatch = data.find(item => 
+      item.display_name.toLowerCase().includes(serviceType) ||
+      item.category?.includes(serviceType)
+    ) || data[0];
+
+    // ✅ Store as "pending verification" provider
+    const provider = {
+      name: bestMatch.display_name.split(",")[0] || "Local Service",
+      address: bestMatch.display_name || `${serviceType} in ${location}`,
+      phone: "Contact via platform",
+      website: "Not Available",
+      role: "service_provider",
+      service: serviceType,
+      subDistrict: location,
+      district: location,
+      city: location,
+      rating: 3.5, // Default for new providers
+      completedJobs: 0,
+      availability: "Available",
+      activeRequests: 0,
+      signupDate: new Date().toISOString(),
+      source: "osm_auto", // Admin can verify later
+      verified: false,    // Needs admin approval
+      coordinates: bestMatch.lat && bestMatch.lon ? 
+        new firebase.firestore.GeoPoint(parseFloat(bestMatch.lat), parseFloat(bestMatch.lon)) : null
+    };
+
+    const docRef = await addDoc(collection(db, "users"), provider);
+    provider.id = docRef.id;
+
+    console.log(`✅ OSM Provider added: ${provider.name} (${provider.id})`);
+    return provider;
+
+  } catch (err) {
+    console.error("❌ OSM Error:", err);
+    return null;
   }
-  return providers;
 }
 
-// ✅ **Fuzzy Matching using Levenshtein Distance**
+// ✅ FUZZY MATCHING (Improved)
 function fuzzyMatch(a, b) {
-  return a.includes(b) || b.includes(a) || levenshteinDistance(a, b) <= 2;
+  const distance = levenshteinDistance(a, b);
+  const minLength = Math.min(a.length, b.length);
+  return (
+    a.includes(b) || 
+    b.includes(a) || 
+    distance <= Math.max(2, minLength * 0.3)
+  );
 }
 
-// ✅ **Levenshtein Distance Calculation**
 function levenshteinDistance(s1, s2) {
   const dp = Array(s2.length + 1).fill().map(() => Array(s1.length + 1).fill(0));
   for (let i = 0; i <= s2.length; i++) dp[i][0] = i;
@@ -566,12 +405,7 @@ function levenshteinDistance(s1, s2) {
   return dp[s2.length][s1.length];
 }
 
-
-
-
-
-
-// ✅ Load User Services
+// ✅ Load User Services (IMPROVED)
 async function loadUserServices() {
   const q = query(collection(db, "services"), where("requestedBy", "==", userId));
   const querySnapshot = await getDocs(q);
@@ -580,7 +414,7 @@ async function loadUserServices() {
   serviceContainer.innerHTML = "";
 
   if (querySnapshot.empty) {
-    serviceContainer.innerHTML = `<p>No services requested yet.</p>`;
+    serviceContainer.innerHTML = `<p class="text-gray-500">No services requested yet.</p>`;
     return;
   }
 
@@ -589,64 +423,119 @@ async function loadUserServices() {
     let providerProfile = "Not Assigned";
 
     if (data.assignedTo) {
-      const providerDoc = await getDoc(doc(db, "users", data.assignedTo));
-      if (providerDoc.exists()) {
-        providerProfile = providerDoc.data().username;
+      try {
+        const providerDoc = await getDoc(doc(db, "users", data.assignedTo));
+        if (providerDoc.exists()) {
+          const providerData = providerDoc.data();
+          providerProfile = providerData.username || providerData.name || "Provider";
+        }
+      } catch (e) {
+        console.error("Provider fetch error:", e);
       }
     }
 
-    // ✅ Generate service card with "Give Feedback" button for completed services
     serviceContainer.innerHTML += `
-      <div style="border:1px solid #ccc; padding:10px; margin-bottom:10px;">
-        <p><b>Service:</b> ${data.serviceName}</p>
-        <p><b>Status:</b> ${data.status}</p>
-        <p><b>Service Provider:</b> ${providerProfile}</p>
-        <button onclick="window.location.href='profile.html?id=${data.assignedTo}'">View Provider Profile</button>
-        <button onclick="window.location.href='profile.html?id=${userId}'">View Your Profile</button>
-        <button onclick="cancelService('${docSnap.id}')">Cancel Service</button>
-        ${data.status === "Completed" ? `<button onclick="openFeedbackForm('${docSnap.id}')">Give Feedback</button>` : ""}
+      <div style="border:1px solid #ccc; padding:15px; margin-bottom:10px; border-radius:8px;">
+        <h4 style="margin:0 0 10px 0; color:#333;"><b>${data.serviceName}</b></h4>
+        <p><b>Status:</b> 
+          <span style="padding:4px 8px; border-radius:4px; background:#e3f2fd; color:#1976d2; font-size:12px;">
+            ${data.status}
+          </span>
+        </p>
+        <p><b>Provider:</b> ${providerProfile}</p>
+        <div style="margin-top:10px;">
+          <button onclick="window.location.href='profile.html?id=${data.assignedTo}'" 
+                  style="padding:6px 12px; margin-right:5px; background:#2196f3; color:white; border:none; border-radius:4px; cursor:pointer;">
+            View Provider
+          </button>
+          <button onclick="window.location.href='profile.html?id=${userId}'" 
+                  style="padding:6px 12px; margin-right:5px; background:#757575; color:white; border:none; border-radius:4px; cursor:pointer;">
+            Your Profile
+          </button>
+          ${data.status === "Assigned" ? 
+            `<button onclick="cancelService('${docSnap.id}')" 
+                    style="padding:6px 12px; background:#f44336; color:white; border:none; border-radius:4px; cursor:pointer;">
+              Cancel Service
+            </button>` : ""}
+          ${data.status === "Completed" ? 
+            `<button onclick="openFeedbackForm('${docSnap.id}')" 
+                    style="padding:6px 12px; background:#4caf50; color:white; border:none; border-radius:4px; cursor:pointer;">
+              Give Feedback
+            </button>` : ""}
+        </div>
       </div>
     `;
 
     if (data.status === "Completed") {
-      document.getElementById("section-4").classList.remove("hidden");
+      document.getElementById("section-4")?.classList.remove("hidden");
     }
   });
 }
 
-// ✅ Cancel Service
+// ✅ Cancel Service (Restores request)
 window.cancelService = async (serviceId) => {
   await updateDoc(doc(db, "services", serviceId), { status: "Cancelled" });
-  alert("Service Cancelled!");
+  
+  // ✅ Restore user request count
+  await updateDoc(doc(db, "subscriptions", userId), {
+    remainingRequests: firebase.firestore.FieldValue.increment(1)
+  });
+  
+  alert("Service Cancelled! Your request has been restored.");
   location.reload();
 };
 
-// ✅ Open Feedback Form & Set latestServiceId
+// ✅ Feedback System
 window.openFeedbackForm = (serviceId) => {
   latestServiceId = serviceId;
-  alert(`Feedback enabled for service: ${latestServiceId}`);
+  alert(`Feedback form ready for service ID: ${latestServiceId}`);
 };
 
-// ✅ Submit Feedback (Fixed)
-document.getElementById("feedback-form").addEventListener("submit", async (e) => {
+document.getElementById("feedback-form")?.addEventListener("submit", async (e) => {
   e.preventDefault();
 
   if (!latestServiceId) {
-    alert("Please select a completed service to give feedback.");
+    alert("Please select a completed service first.");
     return;
   }
 
   const rating = document.getElementById("rating").value;
   const feedback = document.getElementById("feedback").value;
 
-  await updateDoc(doc(db, "services", latestServiceId), {
+  const serviceRef = doc(db, "services", latestServiceId);
+  const serviceSnap = await getDoc(serviceRef);
+  const serviceData = serviceSnap.data();
+
+  // Update service
+  await updateDoc(serviceRef, {
     feedback,
-    rating,
+    rating: parseInt(rating),
     status: "Closed"
   });
 
-  alert("Feedback Submitted!");
+  // Update provider rating
+  if (serviceData.assignedTo) {
+    await updateProviderRating(serviceData.assignedTo, parseInt(rating));
+  }
+
+  alert("✅ Feedback submitted! Thank you.");
   location.reload();
 });
 
+// ✅ Provider Rating Update
+async function updateProviderRating(providerId, rating) {
+  const providerRef = doc(db, "users", providerId);
+  const snap = await getDoc(providerRef);
+  
+  if (snap.exists()) {
+    const data = snap.data();
+    const jobs = (data.completedJobs || 0) + 1;
+    const newRating = ((data.rating || 0) * (jobs - 1) + rating) / jobs;
     
+    await updateDoc(providerRef, {
+      rating: newRating,
+      completedJobs: jobs,
+      activeRequests: firebase.firestore.FieldValue.increment(-1)
+    });
+  }
+        }
