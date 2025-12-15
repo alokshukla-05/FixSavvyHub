@@ -4,93 +4,516 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>User Dashboard - FixSavvyHub</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
     body {
-      font-family: Arial, sans-serif;
-      margin: 20px;
-      background-color: #f5f5f5;
+      font-family: 'Arial', sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+      min-height: 100vh;
     }
+    
+    .dashboard-container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    .dashboard-header {
+      background: linear-gradient(90deg, #007bff, #0056b3);
+      color: white;
+      padding: 20px 30px;
+      border-radius: 15px;
+      margin-bottom: 25px;
+      box-shadow: 0 10px 30px rgba(0, 123, 255, 0.2);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .dashboard-header h1 {
+      margin: 0;
+      font-size: 28px;
+      font-weight: 600;
+    }
+    
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+    
+    .user-avatar {
+      width: 50px;
+      height: 50px;
+      background: white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #007bff;
+      font-size: 20px;
+      font-weight: bold;
+    }
+    
     .section {
       background-color: #fff;
-      border-radius: 10px;
-      padding: 20px;
-      margin-bottom: 20px;
-      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+      border-radius: 15px;
+      padding: 25px 30px;
+      margin-bottom: 25px;
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.08);
+      border: 1px solid #eaeaea;
+      transition: transform 0.3s ease;
     }
+    
+    .section:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
+    }
+    
     h2 {
       margin-top: 0;
+      color: #333;
+      font-size: 22px;
+      font-weight: 600;
+      padding-bottom: 15px;
+      border-bottom: 2px solid #f0f0f0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
+    
+    h2 i {
+      color: #007bff;
+    }
+    
     .hidden {
       display: none;
     }
+    
+    .form-group {
+      margin-bottom: 20px;
+    }
+    
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 500;
+      color: #555;
+    }
+    
+    input, select, textarea {
+      width: 100%;
+      padding: 12px 15px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 16px;
+      transition: border-color 0.3s;
+      box-sizing: border-box;
+    }
+    
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: #007bff;
+      box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+    }
+    
     button {
-      padding: 10px 15px;
-      background-color: #007bff;
+      padding: 12px 25px;
+      background: linear-gradient(90deg, #007bff, #0056b3);
       color: white;
       border: none;
-      border-radius: 5px;
+      border-radius: 8px;
       cursor: pointer;
+      font-size: 16px;
+      font-weight: 600;
+      transition: all 0.3s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
     }
+    
     button:hover {
-      background-color: #0056b3;
+      background: linear-gradient(90deg, #0056b3, #004494);
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(0, 123, 255, 0.3);
+    }
+    
+    button:disabled {
+      background: #cccccc;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+    
+    button.secondary {
+      background: linear-gradient(90deg, #6c757d, #545b62);
+    }
+    
+    button.secondary:hover {
+      background: linear-gradient(90deg, #545b62, #3d4246);
+    }
+    
+    button.success {
+      background: linear-gradient(90deg, #28a745, #1e7e34);
+    }
+    
+    button.warning {
+      background: linear-gradient(90deg, #ffc107, #e0a800);
+    }
+    
+    button.danger {
+      background: linear-gradient(90deg, #dc3545, #bd2130);
+    }
+    
+    .service-card {
+      border: 1px solid #eaeaea;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 15px;
+      background: #f9f9f9;
+      transition: all 0.3s;
+    }
+    
+    .service-card:hover {
+      background: #f0f7ff;
+      border-color: #c3d9ff;
+    }
+    
+    .status-badge {
+      display: inline-block;
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 600;
+      margin-left: 10px;
+    }
+    
+    .status-assigned {
+      background: #d4edda;
+      color: #155724;
+    }
+    
+    .status-pending {
+      background: #fff3cd;
+      color: #856404;
+    }
+    
+    .status-completed {
+      background: #d1ecf1;
+      color: #0c5460;
+    }
+    
+    .status-cancelled {
+      background: #f8d7da;
+      color: #721c24;
+    }
+    
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 15px;
+      flex-wrap: wrap;
+    }
+    
+    .subscription-plan {
+      background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+      padding: 25px;
+      border-radius: 12px;
+      border: 2px solid #dee2e6;
+    }
+    
+    .plan-free {
+      border-color: #6c757d;
+    }
+    
+    .plan-gold {
+      border-color: #ffc107;
+      background: linear-gradient(135deg, #fff9e6 0%, #ffecb3 100%);
+    }
+    
+    .plan-features {
+      margin: 20px 0;
+      padding-left: 20px;
+    }
+    
+    .plan-features li {
+      margin-bottom: 10px;
+      padding-left: 5px;
+    }
+    
+    .request-counter {
+      font-size: 24px;
+      font-weight: bold;
+      color: #007bff;
+      margin: 10px 0;
+    }
+    
+    .loading {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #007bff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    .notification {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 15px 20px;
+      border-radius: 10px;
+      color: white;
+      font-weight: 500;
+      z-index: 1000;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+      animation: slideIn 0.3s ease;
+    }
+    
+    .notification.success {
+      background: linear-gradient(90deg, #28a745, #1e7e34);
+    }
+    
+    .notification.error {
+      background: linear-gradient(90deg, #dc3545, #bd2130);
+    }
+    
+    .notification.info {
+      background: linear-gradient(90deg, #17a2b8, #117a8b);
+    }
+    
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    
+    .progress-bar {
+      height: 10px;
+      background: #e9ecef;
+      border-radius: 5px;
+      margin: 15px 0;
+      overflow: hidden;
+    }
+    
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #007bff, #0056b3);
+      border-radius: 5px;
+      transition: width 0.5s ease;
+    }
+    
+    @media (max-width: 768px) {
+      body {
+        padding: 10px;
+      }
+      
+      .dashboard-header {
+        flex-direction: column;
+        text-align: center;
+        gap: 15px;
+      }
+      
+      .button-group {
+        flex-direction: column;
+      }
+      
+      button {
+        width: 100%;
+        justify-content: center;
+      }
     }
   </style>
 </head>
 <body>
+  <div class="dashboard-container">
+    <!-- Header Section -->
+    <div class="dashboard-header">
+      <div>
+        <h1><i class="fas fa-tools"></i> Welcome to FixSavvyHub</h1>
+        <p style="margin: 5px 0 0 0; opacity: 0.9;">Your one-stop solution for all repair services</p>
+      </div>
+      <div class="user-info">
+        <div class="user-avatar" id="userAvatar">U</div>
+        <div>
+          <div style="font-weight: 600;" id="userGreeting">Hello, User!</div>
+          <div style="font-size: 14px; opacity: 0.8;" id="userPlan">Loading plan...</div>
+        </div>
+      </div>
+    </div>
 
-<h1>Welcome to FixSavvyHub - User Dashboard</h1>
+    <!-- Profile Section -->
+    <section class="section" id="section-1">
+      <h2><i class="fas fa-user-circle"></i> Complete Your Profile</h2>
+      <form id="profile-form">
+        <div class="form-group">
+          <label for="username"><i class="fas fa-user"></i> Full Name</label>
+          <input type="text" id="username" required placeholder="Enter your full name">
+        </div>
+        
+        <div class="form-group">
+          <label for="phone"><i class="fas fa-phone"></i> Phone Number</label>
+          <input type="tel" id="phone" required placeholder="Enter your 10-digit phone number">
+        </div>
+        
+        <div class="form-group">
+          <label for="address"><i class="fas fa-home"></i> Full Address</label>
+          <textarea id="address" rows="3" required placeholder="Enter your complete address including city, state, and pincode"></textarea>
+        </div>
+        
+        <div class="form-group">
+          <label for="city"><i class="fas fa-city"></i> City</label>
+          <input type="text" id="city" required placeholder="Enter your city">
+        </div>
+        
+        <div class="form-group">
+          <label for="state"><i class="fas fa-map-marker-alt"></i> State</label>
+          <input type="text" id="state" required placeholder="Enter your state">
+        </div>
+        
+        <button type="submit">
+          <i class="fas fa-save"></i> Save Profile
+        </button>
+      </form>
+    </section>
 
-<section class="section" id="section-1">
-  <h2>Complete Your Profile</h2>
-  <form id="profile-form">
-    <label>Username:</label>
-    <input type="text" id="username" required><br><br>
-    <label>Phone:</label>
-    <input type="text" id="phone" required><br><br>
-    <label>Address:</label>
-    <input type="text" id="address" required><br><br>
-    <button type="submit">Save Profile</button>
-  </form>
-</section>
+    <!-- Service Request Section -->
+    <section class="section hidden" id="section-2">
+      <h2><i class="fas fa-hand-paper"></i> Request a Service</h2>
+      <form id="request-service-form">
+        <div class="form-group">
+          <label for="service"><i class="fas fa-concierge-bell"></i> Select Service Type</label>
+          <select id="service" required>
+            <option value="" disabled selected>Choose a service you need</option>
+            <option value="Plumbing">Plumbing</option>
+            <option value="Electrician">Electrician</option>
+            <option value="Carpenter">Carpenter</option>
+            <option value="AC Repair">AC Repair</option>
+            <option value="Painting">Painting</option>
+            <option value="Cleaning">Cleaning</option>
+            <option value="Appliance Repair">Appliance Repair</option>
+            <option value="Pest Control">Pest Control</option>
+          </select>
+        </div>
+        
+        <div class="form-group">
+          <label for="service-description"><i class="fas fa-file-alt"></i> Service Description (Optional)</label>
+          <textarea id="service-description" rows="3" placeholder="Describe your issue in detail"></textarea>
+        </div>
+        
+        <div class="progress-bar hidden" id="search-progress">
+          <div class="progress-fill" style="width: 0%"></div>
+        </div>
+        
+        <button type="submit" id="request-service-btn">
+          <i class="fas fa-search"></i> Find & Request Service
+        </button>
+        
+        <div class="request-counter" style="margin-top: 20px;">
+          Requests Left: <span id="requests-counter">0</span>
+        </div>
+      </form>
+    </section>
 
-<section class="section hidden" id="section-2">
-  <h2>Request a Service</h2>
-  <form id="request-service-form">
-    <label>Service:</label>
-    <select id="service" required>
-      <option value="" disabled selected>Select a service</option>
-      <option value="Plumbing">Plumbing</option>
-      <option value="Electrician">Electrician</option>
-      <option value="Carpenter">Carpenter</option>
-      <option value="Ac repair">AC Repair</option>
-    </select><br><br>
-    <button type="submit">Request Service</button>
-  </form>
-</section>
+    <!-- Assigned Services Section -->
+    <section class="section hidden" id="section-3">
+      <h2><i class="fas fa-clipboard-list"></i> Your Service Requests</h2>
+      <div id="assigned-service">
+        <div style="text-align: center; padding: 40px 20px;">
+          <i class="fas fa-clipboard" style="font-size: 48px; color: #6c757d; margin-bottom: 20px;"></i>
+          <p style="color: #6c757d;">No services requested yet. Request your first service!</p>
+        </div>
+      </div>
+    </section>
 
-<section class="section hidden" id="section-3">
-  <h2>Assigned Services</h2>
-  <div id="assigned-service"></div>
-</section>
+    <!-- Feedback Section -->
+    <section class="section hidden" id="section-4">
+      <h2><i class="fas fa-comment-dots"></i> Service Feedback</h2>
+      <form id="feedback-form">
+        <div class="form-group">
+          <label for="service-select"><i class="fas fa-tools"></i> Select Service for Feedback</label>
+          <select id="service-select" required>
+            <option value="" disabled selected>Select a completed service</option>
+          </select>
+        </div>
+        
+        <div class="form-group">
+          <label for="rating"><i class="fas fa-star"></i> Rating (1-5 stars)</label>
+          <div style="display: flex; gap: 10px; margin-top: 10px;">
+            <i class="fas fa-star rating-star" data-value="1" style="font-size: 30px; color: #ddd; cursor: pointer;"></i>
+            <i class="fas fa-star rating-star" data-value="2" style="font-size: 30px; color: #ddd; cursor: pointer;"></i>
+            <i class="fas fa-star rating-star" data-value="3" style="font-size: 30px; color: #ddd; cursor: pointer;"></i>
+            <i class="fas fa-star rating-star" data-value="4" style="font-size: 30px; color: #ddd; cursor: pointer;"></i>
+            <i class="fas fa-star rating-star" data-value="5" style="font-size: 30px; color: #ddd; cursor: pointer;"></i>
+          </div>
+          <input type="hidden" id="rating" required min="1" max="5">
+          <div style="margin-top: 5px; font-size: 14px; color: #666;" id="rating-text">Not rated yet</div>
+        </div>
+        
+        <div class="form-group">
+          <label for="feedback"><i class="fas fa-edit"></i> Your Feedback</label>
+          <textarea id="feedback" rows="5" required placeholder="Please share your experience with the service provider"></textarea>
+        </div>
+        
+        <button type="submit" class="success">
+          <i class="fas fa-paper-plane"></i> Submit Feedback
+        </button>
+      </form>
+    </section>
 
-<section class="section hidden" id="section-4">
-  <h2>Give Feedback</h2>
-  <form id="feedback-form">
-    <label>Rating (1-5):</label>
-    <input type="number" min="1" max="5" id="rating" required><br><br>
-    <label>Feedback:</label><br>
-    <textarea id="feedback" rows="4" required></textarea><br><br>
-    <button type="submit">Submit Feedback</button>
-  </form>
-</section>
+    <!-- Subscription Section -->
+    <section class="section hidden" id="section-5">
+      <h2><i class="fas fa-crown"></i> Your Subscription Plan</h2>
+      <div class="subscription-plan" id="subscription-plan-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <div>
+            <h3 style="margin: 0;" id="plan-title">Free Plan</h3>
+            <p style="margin: 5px 0; color: #666;" id="plan-description">Basic service access</p>
+          </div>
+          <div style="font-size: 24px; font-weight: bold;" id="plan-icon">🆓</div>
+        </div>
+        
+        <div class="plan-features" id="plan-features">
+          <li>1 service request per month</li>
+          <li>Standard provider matching</li>
+          <li>Basic support</li>
+        </div>
+        
+        <div style="margin: 25px 0;">
+          <div style="font-weight: 600; margin-bottom: 10px;">Remaining Requests This Month</div>
+          <div class="request-counter" id="remaining-requests">1</div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="requests-progress" style="width: 100%"></div>
+          </div>
+        </div>
+        
+        <div id="subscription-status" style="padding: 15px; background: #f8f9fa; border-radius: 8px; margin-bottom: 20px;">
+          <div style="font-weight: 600;">Status: <span id="status-text">Active</span></div>
+          <div style="font-size: 14px; color: #666; margin-top: 5px;" id="status-details">Your subscription is active</div>
+        </div>
+        
+        <button id="upgrade-btn" style="width: 100%;">
+          <i class="fas fa-crown"></i> Upgrade to Gold Plan (₹199/month)
+        </button>
+        
+        <div style="text-align: center; margin-top: 15px; font-size: 14px; color: #666;">
+          <i class="fas fa-sync-alt"></i> Plan resets on 1st of every month
+        </div>
+      </div>
+    </section>
+  </div>
 
-<section class="section hidden" id="section-5">
-  <h2>Your Subscription</h2>
-  <p><b>Plan:</b> <span id="plan">-</span></p>
-  <p><b>Remaining Requests:</b> <span id="remaining-requests">-</span></p>
-  <button id="upgrade-btn" onclick="requestGoldPlan()">Upgrade to Gold (₹199/month)</button>
-</section>
+  <!-- Notification Container -->
+  <div id="notification-container"></div>
 
-<script type="module" src="/assets/js/userDashboard.js"></script>
+  <!-- JavaScript Files -->
+  <script type="module" src="/assets/js/firebase-config.js"></script>
+  <script type="module" src="/assets/js/userDashboard.js"></script>
 </body>
-</html>
+              </html>
