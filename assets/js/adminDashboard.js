@@ -220,7 +220,7 @@ window.rejectSubscription = async function (userId) {
   await updateDoc(doc(db, "subscriptions", userId), {
     status: "Rejected",
     plan: "Free",
-    remainingRequests: 5
+    remainingRequests: 0
   });
 
   alert("Subscription Rejected.");
