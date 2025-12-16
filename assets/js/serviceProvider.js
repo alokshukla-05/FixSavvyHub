@@ -69,11 +69,11 @@ document.getElementById("profile-form").addEventListener("submit", async (e) => 
   const service = document.getElementById("service").value;
   const govIDFile = document.getElementById("gov-id").value;
 
-  const govIDURL = URL.createObjectURL(govIDFile);
+  
 
   await setDoc(doc(db, "users", userId), {
     username, phone, address, service,
-    govID: govIDURL,
+    govID: govIDFile,
     role: "service_provider"
   }, { merge: true });
 
