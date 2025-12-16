@@ -67,7 +67,7 @@ document.getElementById("profile-form").addEventListener("submit", async (e) => 
   const phone = document.getElementById("phone").value;
   const address = document.getElementById("address").value;
   const service = document.getElementById("service").value;
-  const govIDFile = document.getElementById("gov-id").files[0];
+  const govIDFile = document.getElementById("gov-id").value;
 
   const govIDURL = URL.createObjectURL(govIDFile);
 
