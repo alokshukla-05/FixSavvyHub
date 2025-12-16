@@ -1,290 +1,314 @@
-/*************************************************
- * IMPORTS
- *************************************************/
 import { auth, db } from "./firebase.js";
 import {
   doc, setDoc, getDoc, collection, addDoc,
   query, where, getDocs, updateDoc, deleteField
 } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js";
 
-/*************************************************
- * GLOBAL STATE (READ ONLY CACHE)
- *************************************************/
-let CURRENT_USER_ID = null;
-let CURRENT_SUBSCRIPTION = null;
-let LATEST_SERVICE_ID = null;
+let userId;
+let latestServiceId = null;
+let subscriptionPlan = "Free";
+let remainingRequests = 1;
+let subscriptionStatus = "Active";
 
-/*************************************************
- * AUTH
- *************************************************/
+// ✅ Authenticate User
 auth.onAuthStateChanged(async (user) => {
   if (!user) {
+    alert("You are not signed in. Redirecting...");
     window.location.href = "signin.html";
     return;
   }
-  CURRENT_USER_ID = user.uid;
-  await bootstrap();
-});
 
-async function bootstrap() {
+  userId = user.uid;
+  console.log("🔐 User logged in:", userId);
   await loadUserProfile();
-  await syncSubscription();   // 🔥 single source of truth
+  await checkSubscription();
   await loadUserServices();
-}
-
-/*************************************************
- * PROFILE
- *************************************************/
-async function loadUserProfile() {
-  const ref = doc(db, "users", CURRENT_USER_ID);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) return;
-
-  const u = snap.data();
-  username.value = u.username || "";
-  phone.value = u.phone || "";
-  address.value = u.address || "";
-}
-
-profile-form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  await setDoc(doc(db, "users", CURRENT_USER_ID), {
-    username: username.value,
-    phone: phone.value,
-    address: address.value,
-    role: "user"
-  }, { merge: true });
-
-  alert("Profile updated");
 });
 
-/*************************************************
- * SUBSCRIPTION (PROFESSIONAL FIX)
- *************************************************/
-async function syncSubscription() {
-  const ref = doc(db, "subscriptions", CURRENT_USER_ID);
-  const snap = await getDoc(ref);
-  const now = new Date();
+// ✅ Load Profile
+async function loadUserProfile() {
+  try {
+    const userDoc = await getDoc(doc(db, "users", userId));
+    if (userDoc.exists()) {
+      const userData = userDoc.data();
+      document.getElementById("username").value = userData.username || "";
+      document.getElementById("phone").value = userData.phone || "";
+      document.getElementById("address").value = userData.address || "";
 
-  // First time
-  if (!snap.exists()) {
-    const fresh = {
+      if (userData.phone && userData.address) {
+        document.getElementById("section-1")?.classList.add("hidden");
+        document.getElementById("section-2")?.classList.remove("hidden");
+        document.getElementById("section-3")?.classList.remove("hidden");
+        document.getElementById("section-5")?.classList.remove("hidden");
+      }
+    }
+  } catch (e) {
+    console.error("Profile load error:", e);
+  }
+}
+
+document.getElementById("profile-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const username = document.getElementById("username").value;
+  const phone = document.getElementById("phone").value;
+  const address = document.getElementById("address").value;
+
+  await setDoc(doc(db, "users", userId), {
+    username, phone, address, role: "user"
+  }, { merge: true });
+  alert("Profile Updated!");
+  location.reload();
+});
+
+// 🔥🔥 FINAL BULLETPROOF SUBSCRIPTION FIX
+async function checkSubscription() {
+  console.log("🔍 === SUBSCRIPTION CHECK START ===");
+  const subRef = doc(db, "subscriptions", userId);
+  const subSnap = await getDoc(subRef);
+  
+  if (!subSnap.exists()) {
+    console.log("📝 No subscription doc - creating new");
+    await setDoc(subRef, {
       plan: "Free",
-      status: "Active",
       remainingRequests: 1,
-      lastReset: now.toISOString()
-    };
-    await setDoc(ref, fresh);
-    CURRENT_SUBSCRIPTION = fresh;
-    updateSubscriptionUI();
+      status: "Active",
+      lastReset: new Date().toISOString()
+    }, { merge: true });
+    location.reload();
     return;
   }
 
-  const sub = snap.data();
+  const rawData = subSnap.data();
+  console.log("📊 RAW FIRESTORE DATA:", rawData);
 
-  // ✅ REJECTED → RESTORE EXACT VALUE
-  if (sub.plan === "Gold" && sub.status === "Rejected") {
-    const restored = {
+  // ✅ FORCE SAFE VALUES
+  subscriptionPlan = rawData.plan === "Gold" ? "Gold" : "Free";
+  subscriptionStatus = rawData.status || "Active";
+  remainingRequests = Math.max(1, parseInt(rawData.remainingRequests) || 1);
+  
+  console.log("✅ PARSED VALUES:", {
+    plan: subscriptionPlan,
+    status: subscriptionStatus,
+    requests: remainingRequests,
+    backupRequests: rawData.backupRequests
+  });
+
+  // 🔥 CRITICAL FIX: Gold Rejection
+  if (subscriptionPlan === "Gold" && subscriptionStatus === "Rejected") {
+    console.log("🚨 GOLD REJECTED - RESTORING...");
+    
+    // TRIPLE SAFE FALLBACK
+    let restoreCount = 1;
+    if (typeof rawData.backupRequests === 'number' && rawData.backupRequests > 0) {
+      restoreCount = rawData.backupRequests;
+    }
+    
+    console.log("🔄 Restoring", restoreCount, "requests");
+    
+    await setDoc(subRef, {
       plan: "Free",
       status: "Active",
-      remainingRequests:
-        typeof sub.backupRequests === "number"
-          ? sub.backupRequests
-          : 1,
+      remainingRequests: restoreCount,
+      subscribedDate: null,
       backupRequests: deleteField(),
-      subscribedDate: null
-    };
+      lastReset: new Date().toISOString()
+    }, { merge: true });
 
-    await updateDoc(ref, restored);
-    CURRENT_SUBSCRIPTION = { ...sub, ...restored };
-    updateSubscriptionUI();
-    alert("Gold rejected. Previous requests restored.");
+    alert(`Gold rejected. Restored ${restoreCount} request(s)`);
+    location.reload();
     return;
   }
 
-  // GOLD EXPIRY
-  if (sub.plan === "Gold" && sub.subscribedDate) {
-    const expiry = new Date(sub.subscribedDate);
+  // Gold expiry check
+  if (subscriptionPlan === "Gold" && rawData.subscribedDate) {
+    const expiry = new Date(rawData.subscribedDate);
     expiry.setMonth(expiry.getMonth() + 1);
-    if (now >= expiry) {
-      await updateDoc(ref, {
+    if (new Date() >= expiry) {
+      await setDoc(subRef, {
         plan: "Free",
-        status: "Expired",
         remainingRequests: 1,
-        subscribedDate: null
-      });
-      CURRENT_SUBSCRIPTION = { ...sub, plan: "Free", remainingRequests: 1 };
-      updateSubscriptionUI();
+        status: "Expired",
+        subscribedDate: null,
+        backupRequests: deleteField()
+      }, { merge: true });
+      alert("Gold expired. 1 free request restored.");
+      location.reload();
       return;
     }
   }
 
-  CURRENT_SUBSCRIPTION = sub;
-  updateSubscriptionUI();
+  // Free monthly reset
+  if (subscriptionPlan === "Free" && remainingRequests <= 0) {
+    const lastReset = rawData.lastReset ? new Date(rawData.lastReset) : null;
+    const needsReset = !lastReset || 
+      lastReset.getMonth() !== new Date().getMonth() || 
+      lastReset.getFullYear() !== new Date().getFullYear();
+
+    if (needsReset) {
+      await updateDoc(subRef, {
+        remainingRequests: 1,
+        lastReset: new Date().toISOString()
+      });
+      alert("Monthly reset: 1 free request!");
+      location.reload();
+      return;
+    }
+  }
+
+  // UI Update
+  document.getElementById("plan").innerText = `Current Plan: ${subscriptionPlan}`;
+  document.getElementById("remaining-requests").innerText = `Remaining Requests: ${remainingRequests}`;
+
+  const upgradeBtn = document.getElementById("upgrade-btn");
+  if (upgradeBtn) {
+    upgradeBtn.innerText = subscriptionStatus === "Pending" ? "Pending Approval" : 
+                          subscriptionPlan === "Gold" ? "Gold Active" : 
+                          "Upgrade to Gold (₹199/month)";
+    upgradeBtn.disabled = subscriptionStatus === "Pending" || subscriptionPlan === "Gold";
+  }
+
+  console.log("✅ === SUBSCRIPTION CHECK COMPLETE ===");
 }
 
-function updateSubscriptionUI() {
-  plan.innerText = `Plan: ${CURRENT_SUBSCRIPTION.plan}`;
-  remaining-requests.innerText =
-    `Remaining Requests: ${CURRENT_SUBSCRIPTION.remainingRequests}`;
-}
-
-/*************************************************
- * REQUEST GOLD (SAFE BACKUP)
- *************************************************/
+// 🔥 PERFECT Gold Request
 window.requestGoldPlan = async () => {
-  const ref = doc(db, "subscriptions", CURRENT_USER_ID);
-  const snap = await getDoc(ref);
-  const current = snap.data();
+  console.log("💰 Gold request started");
+  
+  const subSnap = await getDoc(doc(db, "subscriptions", userId));
+  let currentRequests = 1;
+  
+  if (subSnap.exists()) {
+    currentRequests = Math.max(1, parseInt(subSnap.data().remainingRequests) || 1);
+  }
+  
+  console.log("💾 SAVING BACKUP:", currentRequests);
 
-  await updateDoc(ref, {
+  await setDoc(doc(db, "subscriptions", userId), {
     plan: "Gold",
-    status: "Pending",
     remainingRequests: 35,
+    status: "Pending",
     subscribedDate: new Date().toISOString(),
-    backupRequests: current.remainingRequests
-  });
+    backupRequests: currentRequests,  // ✅ ALWAYS SAVED AS NUMBER
+    lastReset: null
+  }, { merge: true });
 
-  alert("Gold request sent for approval");
-  await syncSubscription();
+  alert("Gold requested! Awaiting admin approval.");
+  location.reload();
 };
 
-/*************************************************
- * SERVICE REQUEST
- *************************************************/
-request-service-form.addEventListener("submit", async (e) => {
+// ✅ Service Request
+document.getElementById("request-service-form")?.addEventListener("submit", async (e) => {
   e.preventDefault();
+  
+  console.log("📞 Service request:", { status: subscriptionStatus, requests: remainingRequests });
+  
+  if (subscriptionStatus === "Pending") return alert("Gold pending.");
+  if (remainingRequests <= 0) return alert("Upgrade to Gold.");
 
-  if (CURRENT_SUBSCRIPTION.status === "Pending") {
-    alert("Gold approval pending");
+  const service = document.getElementById("service").value;
+  const providerId = await autoAssignServiceProvider();
+
+  if (!providerId) {
+    alert("No providers available. Admin will help.");
     return;
   }
-
-  if (CURRENT_SUBSCRIPTION.remainingRequests <= 0) {
-    alert("No requests left");
-    return;
-  }
-
-  const providerId = await autoAssignProvider();
-  if (!providerId) return;
 
   await addDoc(collection(db, "services"), {
-    serviceName: service.value,
-    requestedBy: CURRENT_USER_ID,
+    serviceName: service,
+    requestedBy: userId,
     assignedTo: providerId,
     status: "Assigned",
-    createdAt: new Date().toISOString()
+    timestamp: new Date().toISOString()
   });
 
-  await updateDoc(
-    doc(db, "subscriptions", CURRENT_USER_ID),
-    { remainingRequests: CURRENT_SUBSCRIPTION.remainingRequests - 1 }
-  );
+  await updateDoc(doc(db, "subscriptions", userId), {
+    remainingRequests: firebase.firestore.FieldValue.increment(-1)
+  });
 
-  await syncSubscription();
-  alert("Service assigned");
+  alert("✅ Service assigned!");
+  location.reload();
 });
 
-/*************************************************
- * AUTO ASSIGN (PRODUCTION LOGIC)
- *************************************************/
-async function autoAssignProvider() {
-  const userSnap = await getDoc(doc(db, "users", CURRENT_USER_ID));
+// ✅ Provider assignment (simple)
+async function autoAssignServiceProvider() {
+  const serviceType = document.getElementById("service").value.toLowerCase();
+  const userSnap = await getDoc(doc(db, "users", userId));
+  
   if (!userSnap.exists()) return null;
-
+  
   const { subDistrict, district, city } = userSnap.data();
-  const s = service.value.toLowerCase().trim();
-
-  const levels = [
-    ["subDistrict", subDistrict],
-    ["district", district],
-    ["city", city]
-  ];
-
-  for (const [field, value] of levels) {
-    if (!value) continue;
-    const providers = await getProviders(s, field, value);
-    if (providers.length) return pickBest(providers);
+  const locations = [subDistrict, district, city].filter(Boolean);
+  
+  for (const location of locations) {
+    const providers = await getProviders(serviceType, location);
+    if (providers.length > 0) return providers[0].id;
   }
-
-  alert("No provider available. Admin will contact you.");
-  return null;
+  
+  return "admin-manual"; // Fallback
 }
 
-async function getProviders(service, field, value) {
+async function getProviders(serviceType, location) {
   const q = query(
     collection(db, "users"),
     where("role", "==", "service_provider"),
-    where(field, "==", value)
+    where("subDistrict", "==", location)
   );
-
   const snap = await getDocs(q);
-  let list = [];
-
-  snap.forEach(d => {
-    const p = d.data();
-    if ((p.service || "").toLowerCase().includes(service)) {
-      list.push({
-        id: d.id,
-        rating: p.rating || 0,
-        completedJobs: p.completedJobs || 0,
-        activeRequests: p.activeRequests || 0,
-        availability: p.availability || "Available",
-        signupDate: p.signupDate || "9999-12-31"
-      });
-    }
-  });
-
-  return list;
+  return Array.from(snap.docs).map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
-function pickBest(list) {
-  return list
-    .filter(p => p.availability === "Available")
-    .sort((a, b) =>
-      (b.rating + b.completedJobs) - (a.rating + a.completedJobs) ||
-      a.activeRequests - b.activeRequests ||
-      new Date(a.signupDate) - new Date(b.signupDate)
-    )[0]?.id || null;
-}
-
-/*************************************************
- * SERVICES & FEEDBACK
- *************************************************/
+// ✅ Services list
 async function loadUserServices() {
-  const q = query(
-    collection(db, "services"),
-    where("requestedBy", "==", CURRENT_USER_ID)
-  );
+  const q = query(collection(db, "services"), where("requestedBy", "==", userId));
   const snap = await getDocs(q);
-  assigned-service.innerHTML = "";
-
-  snap.forEach(d => {
-    const s = d.data();
-    assigned-service.innerHTML += `
-      <div>
-        <b>${s.serviceName}</b> - ${s.status}
-        ${s.status === "Completed"
-          ? `<button onclick="openFeedback('${d.id}')">Feedback</button>`
-          : ""}
-      </div>`;
+  const container = document.getElementById("assigned-service");
+  
+  if (!container) return;
+  
+  container.innerHTML = snap.empty ? "<p>No services requested.</p>" : "";
+  
+  snap.forEach((doc) => {
+    const data = doc.data();
+    container.innerHTML += `
+      <div style="border:1px solid #ccc; padding:15px; margin:10px 0; border-radius:8px;">
+        <h4>${data.serviceName}</h4>
+        <p>Status: <span style="background:#e3f2fd; padding:4px 8px; border-radius:4px;">${data.status}</span></p>
+        ${data.status === "Assigned" ? 
+          `<button onclick="cancelService('${doc.id}')" style="background:#f44336; color:white; padding:8px 16px; border:none; border-radius:4px;">Cancel</button>` : 
+          data.status === "Completed" ? 
+          `<button onclick="openFeedbackForm('${doc.id}')" style="background:#4caf50; color:white; padding:8px 16px; border:none; border-radius:4px;">Feedback</button>` : 
+          ""
+        }
+      </div>
+    `;
   });
 }
 
-window.openFeedback = (id) => LATEST_SERVICE_ID = id;
+window.cancelService = async (serviceId) => {
+  await updateDoc(doc(db, "services", serviceId), { status: "Cancelled" });
+  await updateDoc(doc(db, "subscriptions", userId), {
+    remainingRequests: firebase.firestore.FieldValue.increment(1)
+  });
+  alert("Cancelled! Request restored.");
+  location.reload();
+};
 
-feedback-form.addEventListener("submit", async e => {
+window.openFeedbackForm = (serviceId) => {
+  latestServiceId = serviceId;
+  alert("Feedback ready for service: " + serviceId);
+};
+
+document.getElementById("feedback-form")?.addEventListener("submit", async (e) => {
   e.preventDefault();
-  if (!LATEST_SERVICE_ID) return;
-
-  await updateDoc(
-    doc(db, "services", LATEST_SERVICE_ID),
-    {
-      rating: rating.value,
-      feedback: feedback.value,
-      status: "Closed"
-    }
-  );
-
-  alert("Feedback submitted");
+  if (!latestServiceId) return alert("Select service first.");
+  
+  const rating = document.getElementById("rating")?.value || 5;
+  const feedback = document.getElementById("feedback")?.value || "";
+  
+  await updateDoc(doc(db, "services", latestServiceId), {
+    feedback, rating: parseInt(rating), status: "Closed"
+  });
+  
+  alert("Feedback saved!");
+  location.reload();
 });
