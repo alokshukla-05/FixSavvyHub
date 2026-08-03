@@ -15,14 +15,17 @@ FixSavvyHub is a web-based platform that bridges the gap between customers and s
 
 Instead of searching manually for electricians, plumbers, AC technicians, mechanics, or other professionals, users simply submit a service request. The system automatically assigns the nearest verified service provider using location-based matching.
 
+**Website**
+
+https://fixsavvyhub.pages.dev 
+
 The platform includes separate dashboards for:
 
 - 👤 Customer
 - 🔧 Service Provider
 - 🛠️ Admin
-**Website**
-
-https://fixsavvyhub.pages.dev 
+  
+ 
 ---
 
 # ✨ Features
