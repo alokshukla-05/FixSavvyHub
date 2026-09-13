@@ -1,96 +1,606 @@
 <!DOCTYPE html>
+
 <html lang="en">
+
 <head>
+
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>User Dashboard - FixSavvyHub</title>
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <title>
+    User Dashboard - FixSavvyHub
+  </title>
+
+
   <style>
+
+    * {
+      box-sizing: border-box;
+    }
+
+
     body {
-      font-family: Arial, sans-serif;
-      margin: 20px;
-      background-color: #f5f5f5;
-    }
-    .section {
-      background-color: #fff;
-      border-radius: 10px;
+
+      margin: 0;
+
       padding: 20px;
-      margin-bottom: 20px;
-      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+
+      font-family:
+        Arial,
+        Helvetica,
+        sans-serif;
+
+      background:
+        #f5f7fb;
+
+      color:
+        #222;
+
     }
-    h2 {
-      margin-top: 0;
+
+
+    .container {
+
+      width: 100%;
+
+      max-width: 1000px;
+
+      margin:
+        0 auto;
+
     }
+
+
+    h1 {
+
+      margin:
+        10px 0 25px;
+
+    }
+
+
+    .section {
+
+      background:
+        #ffffff;
+
+      padding:
+        22px;
+
+      margin-bottom:
+        20px;
+
+      border-radius:
+        12px;
+
+      box-shadow:
+        0 4px 15px
+        rgba(0,0,0,0.08);
+
+    }
+
+
     .hidden {
-      display: none;
+
+      display:
+        none !important;
+
     }
+
+
+    h2 {
+
+      margin-top:
+        0;
+
+    }
+
+
+    label {
+
+      display:
+        block;
+
+      font-weight:
+        bold;
+
+      margin-bottom:
+        6px;
+
+    }
+
+
+    input,
+    select,
+    textarea {
+
+      width:
+        100%;
+
+      padding:
+        11px;
+
+      border:
+        1px solid #ccc;
+
+      border-radius:
+        6px;
+
+      font-size:
+        15px;
+
+      margin-bottom:
+        15px;
+
+    }
+
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+
+      outline:
+        none;
+
+      border-color:
+        #007bff;
+
+    }
+
+
     button {
-      padding: 10px 15px;
-      background-color: #007bff;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
+
+      padding:
+        10px 15px;
+
+      border:
+        none;
+
+      border-radius:
+        6px;
+
+      background:
+        #007bff;
+
+      color:
+        #ffffff;
+
+      cursor:
+        pointer;
+
+      font-size:
+        14px;
+
+      margin:
+        4px;
+
     }
+
+
     button:hover {
-      background-color: #0056b3;
+
+      background:
+        #0056b3;
+
     }
+
+
+    button:disabled {
+
+      background:
+        #999;
+
+      cursor:
+        not-allowed;
+
+    }
+
+
+    .danger-btn {
+
+      background:
+        #dc3545;
+
+    }
+
+
+    .danger-btn:hover {
+
+      background:
+        #a71d2a;
+
+    }
+
+
+    .subscription-info {
+
+      padding:
+        15px;
+
+      background:
+        #f1f5ff;
+
+      border-radius:
+        8px;
+
+      margin-bottom:
+        15px;
+
+    }
+
+
+    .service-card {
+
+      padding:
+        18px;
+
+      margin-bottom:
+        15px;
+
+      background:
+        #fafafa;
+
+      border:
+        1px solid #ddd;
+
+      border-radius:
+        10px;
+
+    }
+
+
+    .service-card h3 {
+
+      margin-top:
+        0;
+
+    }
+
+
+    .service-actions {
+
+      display:
+        flex;
+
+      flex-wrap:
+        wrap;
+
+      gap:
+        5px;
+
+      margin-top:
+        15px;
+
+    }
+
+
+    @media (max-width: 600px) {
+
+      body {
+        padding: 10px;
+      }
+
+
+      .section {
+        padding: 16px;
+      }
+
+
+      button {
+        width: 100%;
+        margin: 4px 0;
+      }
+
+
+      .service-actions {
+        flex-direction:
+          column;
+      }
+
+    }
+
   </style>
+
 </head>
+
+
 <body>
 
-<h1>Welcome to FixSavvyHub - User Dashboard</h1>
 
-<section class="section" id="section-1">
-  <h2>Complete Your Profile</h2>
-  <form id="profile-form">
-    <label>Username:</label>
-    <input type="text" id="username" required><br><br>
-    <label>Phone:</label>
-    <input type="text" id="phone" required><br><br>
-    <label>Address:</label>
-    <input type="text" id="address" required><br><br>
-    <button type="submit">Save Profile</button>
-  </form>
-</section>
+<div class="container">
 
-<section class="section hidden" id="section-2">
-  <h2>Request a Service</h2>
-  <form id="request-service-form">
-    <label>Service:</label>
-    <select id="service" required>
-      <option value="" disabled selected>Select a service</option>
-      <option value="Plumbing">Plumbing</option>
-      <option value="Electrician">Electrician</option>
-      <option value="Carpenter">Carpenter</option>
-      <option value="Ac repair">AC Repair</option>
-    </select><br><br>
-    <button type="submit">Request Service</button>
-  </form>
-</section>
 
-<section class="section hidden" id="section-3">
-  <h2>Assigned Services</h2>
-  <div id="assigned-service"></div>
-</section>
+  <h1>
+    Welcome to FixSavvyHub
+  </h1>
 
-<section class="section hidden" id="section-4">
-  <h2>Give Feedback</h2>
-  <form id="feedback-form">
-    <label>Rating (1-5):</label>
-    <input type="number" min="1" max="5" id="rating" required><br><br>
-    <label>Feedback:</label><br>
-    <textarea id="feedback" rows="4" required></textarea><br><br>
-    <button type="submit">Submit Feedback</button>
-  </form>
-</section>
 
-<section class="section hidden" id="section-5">
-  <h2>Your Subscription</h2>
-  <p><b>Plan:</b> <span id="plan">-</span></p>
-  <p><b>Remaining Requests:</b> <span id="remaining-requests">-</span></p>
-  <button id="upgrade-btn" onclick="requestGoldPlan()">Upgrade to Gold (₹199/month)</button>
-</section>
+  <!-- ========================================= -->
+  <!-- PROFILE -->
+  <!-- ========================================= -->
 
-<script type="module" src="/assets/js/userDashboard.js"></script>
+  <section
+    class="section"
+    id="section-1"
+  >
+
+    <h2>
+      Complete Your Profile
+    </h2>
+
+
+    <form id="profile-form">
+
+
+      <label for="username">
+        Username
+      </label>
+
+      <input
+        type="text"
+        id="username"
+        placeholder="Enter username"
+        required
+      >
+
+
+      <label for="phone">
+        Phone
+      </label>
+
+      <input
+        type="tel"
+        id="phone"
+        placeholder="Enter phone number"
+        required
+      >
+
+
+      <label for="address">
+        Address
+      </label>
+
+      <input
+        type="text"
+        id="address"
+        placeholder="Enter complete address"
+        required
+      >
+
+
+      <button type="submit">
+        Save Profile
+      </button>
+
+
+    </form>
+
+  </section>
+
+
+  <!-- ========================================= -->
+  <!-- SERVICE REQUEST -->
+  <!-- ========================================= -->
+
+  <section
+    class="section hidden"
+    id="section-2"
+  >
+
+    <h2>
+      Request a Service
+    </h2>
+
+
+    <form
+      id="request-service-form"
+    >
+
+
+      <label for="service">
+        Select Service
+      </label>
+
+
+      <select
+        id="service"
+        required
+      >
+
+        <option
+          value=""
+          disabled
+          selected
+        >
+          Select a service
+        </option>
+
+
+        <option value="Plumbing">
+          Plumbing
+        </option>
+
+
+        <option value="Electrician">
+          Electrician
+        </option>
+
+
+        <option value="Carpenter">
+          Carpenter
+        </option>
+
+
+        <option value="Ac repair">
+          AC Repair
+        </option>
+
+
+      </select>
+
+
+      <button type="submit">
+        Request Service
+      </button>
+
+
+    </form>
+
+  </section>
+
+
+  <!-- ========================================= -->
+  <!-- SERVICES -->
+  <!-- ========================================= -->
+
+  <section
+    class="section hidden"
+    id="section-3"
+  >
+
+    <h2>
+      Your Services
+    </h2>
+
+
+    <div id="assigned-service">
+
+      <p>
+        Loading services...
+      </p>
+
+    </div>
+
+  </section>
+
+
+  <!-- ========================================= -->
+  <!-- FEEDBACK -->
+  <!-- ========================================= -->
+
+  <section
+    class="section hidden"
+    id="section-4"
+  >
+
+    <h2>
+      Give Feedback
+    </h2>
+
+
+    <form
+      id="feedback-form"
+    >
+
+
+      <label for="rating">
+        Rating (1-5)
+      </label>
+
+
+      <input
+        type="number"
+        id="rating"
+        min="1"
+        max="5"
+        placeholder="Enter rating"
+        required
+      >
+
+
+      <label for="feedback">
+        Feedback
+      </label>
+
+
+      <textarea
+        id="feedback"
+        rows="5"
+        placeholder="Write your feedback..."
+        required
+      ></textarea>
+
+
+      <button type="submit">
+        Submit Feedback
+      </button>
+
+
+    </form>
+
+  </section>
+
+
+  <!-- ========================================= -->
+  <!-- SUBSCRIPTION -->
+  <!-- ========================================= -->
+
+  <section
+    class="section hidden"
+    id="section-5"
+  >
+
+    <h2>
+      Your Subscription
+    </h2>
+
+
+    <div class="subscription-info">
+
+
+      <p>
+
+        <b>
+          Plan:
+        </b>
+
+        <span id="plan">
+          Loading...
+        </span>
+
+      </p>
+
+
+      <p>
+
+        <b>
+          Remaining Requests:
+        </b>
+
+        <span id="remaining-requests">
+          Loading...
+        </span>
+
+      </p>
+
+
+    </div>
+
+
+    <button
+      id="upgrade-btn"
+      onclick="requestGoldPlan()"
+    >
+      Upgrade to Gold (₹199/month)
+    </button>
+
+
+  </section>
+
+
+</div>
+
+
+<script
+  type="module"
+  src="/assets/js/userDashboard.js"
+></script>
+
+
 </body>
+
 </html>
