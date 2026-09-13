@@ -20,7 +20,7 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           port: ${{ secrets.FTP_PORT }}
-          server-dir: /home/vol2_6/infinityfree.com/if0_39726685/webhost.xo.je/htdocs/FixSavvyHub/
+          server-dir: /webhost.xo.je/htdocs/FixSavvyHub/
           protocol: ftp
           security: loose
           log-level: standard
